@@ -38,6 +38,18 @@ tool, not a place to do work.
     a static JSON file or small SQLite table edited via the UI is enough — don't
     over-engineer this piece
 
+### Topology — DECIDED
+Two machines:
+- **Main PC** (RTX 5070 Ti) — runs the LLM and the GPU agent. Not always on.
+- **Always-on server** — runs this dashboard, G.A.B., and everything else.
+
+So the GPU agent is the one upstream that crosses machines, and the only one expected to
+be legitimately offline day to day. It degrades the GPU lane alone, never the panel.
+
+### Ports — DECIDED
+8080 is SearXNG and 8880 is ntfy. This stack lives in **8881-8889**:
+`8881` dashboard · `8882` G.A.B. · `8883` GPU agent.
+
 ### Non-goals
 - No auth system beyond Tailscale ACLs — don't build a login page
 - No duplicate notifications — G.A.B. already pushes to ntfy/Gotify; this dashboard reads
@@ -71,11 +83,10 @@ The UI design is settled. `docs/dashboard-ui-mockup.html` is the visual referenc
 ### Open questions to resolve before/while building
 - How G.A.B. stores assignments behind `/api/assignments` — a new first-class type in
   `gab_data.json`, or derived from existing dated reminders? The UI is indifferent.
-- Which box does this actually run on — same LXC as G.A.B., or its own container?
-- Real values for the attention thresholds and the watched-container list. The server
-  logs a warning at startup while these are still the placeholders in
-  `internal/config/config.go`, and attention rule 2 cannot fire until the watched-container
-  list is set.
+- Real values for the **watched-container list**. GPU temp (80 °C) and disk (85%) are
+  confirmed; the container list is the last placeholder in `internal/config/config.go`.
+  The server logs a warning at startup while it is empty, and attention rule 2 cannot
+  fire until it is set.
 - **What else G.A.B. exposes besides assignments.** Only `/api/assignments` was ever
   pinned, but the monitor shows DAILY / WEEKLY OBJECTIVES / REMINDERS blocks and attention
   rule 1 is defined in terms of overdue *reminders*. `internal/gab` asks for

@@ -36,8 +36,8 @@ func StubSnapshot(now time.Time, watched []string) Snapshot {
 	ok := model.SourceStatus{OK: true, FetchedAt: now}
 	return Snapshot{
 		GPUs: []model.GPU{{
-			Name: "NVIDIA GeForce RTX 3060", TempC: 61, FanPct: 38,
-			VRAMUsedMB: 7400, VRAMTotalMB: 12288,
+			Name: "NVIDIA GeForce RTX 5070 Ti", TempC: 61, FanPct: 38,
+			VRAMUsedMB: 7400, VRAMTotalMB: 16384,
 		}},
 		Containers: []model.Container{
 			container("ollama", "running", 101),

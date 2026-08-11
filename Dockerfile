@@ -37,8 +37,8 @@ VOLUME /data
 RUN adduser -D -u 10001 dashboard && mkdir -p /data && chown dashboard /data
 USER dashboard
 
-EXPOSE 8088
+EXPOSE 8881
 HEALTHCHECK --interval=30s --timeout=3s \
-  CMD wget -qO- http://127.0.0.1:8088/healthz || exit 1
+  CMD wget -qO- http://127.0.0.1:8881/healthz || exit 1
 
 ENTRYPOINT ["/usr/local/bin/dashboard"]

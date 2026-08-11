@@ -12,7 +12,7 @@ reference. This file covers how to run it.
 ```sh
 # With fixture data — no G.A.B., no Proxmox, no GPU agent needed.
 DASHBOARD_STUB=1 go run ./cmd/dashboard
-# → http://localhost:8088
+# → http://localhost:8881
 ```
 
 Resize the window past 1100px to switch between the two surfaces: the monitor
@@ -30,16 +30,16 @@ No secret has a default.
 
 | Env | Default | What |
 |---|---|---|
-| `DASHBOARD_HOST` / `DASHBOARD_PORT` | `0.0.0.0:8088` | Bind address |
-| `GAB_URL` | `http://127.0.0.1:8080` | G.A.B., for `GET /api/assignments` |
+| `DASHBOARD_HOST` / `DASHBOARD_PORT` | `0.0.0.0:8881` | Bind address |
+| `GAB_URL` | `http://127.0.0.1:8882` | G.A.B., for `GET /api/assignments` |
 | `GPU_AGENT_URL` | — | Workstation agent wrapping `nvidia-smi` |
 | `PROXMOX_URL` / `PROXMOX_NODE` | — | Proxmox API |
 | `PROXMOX_TOKEN_ID` / `PROXMOX_TOKEN_SECRET` | — | API token; **env only** |
 | `PROXMOX_INSECURE` | `true` | Self-signed homelab cert |
 | `PIPELINE_PATH` | `./data/pipeline.json` | The only writable state |
 | `ATTENTION_CONTAINERS` | *(empty)* | **Unconfirmed** — see below |
-| `ATTENTION_GPU_TEMP_C` | `80` | **Unconfirmed placeholder** |
-| `ATTENTION_DISK_PCT` | `90` | **Unconfirmed placeholder** |
+| `ATTENTION_GPU_TEMP_C` | `80` | Confirmed |
+| `ATTENTION_DISK_PCT` | `85` | Confirmed |
 | `DRIFT_PX`, `DRIFT_PERIOD_MIN`, `DIM_START_HOUR`, `DIM_END_HOUR`, `DIM_OPACITY` | `6`, `17`, `23`, `7`, `0.55` | Burn-in mitigation |
 | `DASHBOARD_STUB` | `false` | Fixture data for UI work |
 
@@ -66,13 +66,21 @@ writes to G.A.B. — `internal/gab` has no write path to add to by accident.
 ## How it fits together
 
 ```
-                    ┌──────────────┐
-   G.A.B. ─────────▶│              │   /api/assignments (read-only, pinned)
-   Proxmox ────────▶│  dashboard   │   /api2/json/cluster/resources
-   GPU agent ──────▶│              │   /gpu on the workstation
-                    └──────┬───────┘
-                      pipeline.json  ← the only thing it writes
+  ALWAYS-ON SERVER                          MAIN PC (RTX 5070 Ti)
+  ┌───────────────────────────┐             ┌──────────────────┐
+  │ G.A.B.      :8882 ───────┐│             │ LLM              │
+  │ Proxmox API :8006 ──────┐││             │ GPU agent :8883 ─┼──┐
+  │                        ┌▼▼▼─────────┐   └──────────────────┘  │
+  │                        │ dashboard  │◀─── Tailscale ──────────┘
+  │                        │   :8881    │
+  │                        └─────┬──────┘
+  │                        pipeline.json  ← the only thing it writes
+  └───────────────────────────┘
 ```
+
+The GPU agent is the only upstream that crosses machines, and the only one
+expected to be offline routinely — whenever the main PC is off. It degrades
+the GPU lane alone.
 
 Upstreams refresh on the server's own 10s timer; the UI's 20s poll only reads
 memory, so a slow Proxmox call can never stall a poll. Each source carries its
@@ -83,14 +91,12 @@ panel — and a failed source shows as failed rather than falling back to stubs.
 
 Carried from `docs/dashboard-ui.md`, plus one found while building:
 
-1. **Real attention thresholds** — which containers are load-bearing, what GPU
-   temp is too hot, what disk percentage matters. The server warns at startup
-   while `ATTENTION_CONTAINERS` is empty, and rule 2 can never fire until it is
-   set.
-2. **How G.A.B. stores assignments** behind `/api/assignments`. The response
-   shape is pinned; storage is G.A.B.'s call and this side is indifferent.
-3. **Which box this runs on** — its own LXC or alongside G.A.B.
-4. **G.A.B. endpoints beyond assignments.** The monitor mockup shows DAILY,
+1. **The watched-container list.** GPU temp (80 °C) and disk (85%) are
+   confirmed. This is the last placeholder: the server warns at startup while
+   `ATTENTION_CONTAINERS` is empty, and rule 2 can never fire until it is set.
+2. **G.A.B.'s port.** 8882 is this project's reservation, not a port G.A.B. is
+   known to be listening on.
+3. **G.A.B. endpoints beyond assignments.** The monitor mockup shows DAILY,
    WEEKLY OBJECTIVES and REMINDERS blocks, and attention rule 1 is defined in
    terms of overdue *reminders* — but only `/api/assignments` was ever pinned.
    `internal/gab` asks for `/api/reminders`, `/api/tasks` and `/api/objectives`
