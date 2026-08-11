@@ -8,7 +8,7 @@ own `CLAUDE.md` with real detail; don't duplicate that here, link to it.
 ## Layout
 ```
 dashboard/              ← this repo; the actual dashboard app (see its own build notes above)
-├── gab/                ← submodule: G.A.B., the voice assistant (existing project,
+├── gab-assistant/                ← submodule: G.A.B., the voice assistant (existing project,
 │                          not started fresh here). See gab/CLAUDE.md.
 ├── notes-rag/           ← submodule: RAG-backed notes search/chat. See notes-rag/CLAUDE.md.
 └── homelab-scheduler/    ← submodule, added later once Ryan starts it himself.
