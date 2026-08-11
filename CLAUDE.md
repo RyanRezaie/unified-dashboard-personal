@@ -174,6 +174,59 @@ pre-installed Chromium): the monitor never prints a private reminder's or a
 private task's words, the phone prints both, and G.A.B.'s own HUD toggle marks
 a row without also switching the reminder off on the way past.
 
+## Voice control in Docker — DECIDED, written, untested on hardware
+
+The `gab` image was API-and-HUD-only because "a container has no
+microphone." That was a choice, not a law. Voice now runs in the container
+via `docker-compose.voice.yml`, an override rather than a profile or a
+second service — there can only ever be **one** G.A.B., since two of them
+writing `gab_data.json` is a lost write, not redundancy.
+
+What was decided, and why:
+
+- **The host's audio socket, not `/dev/snd`.** `arecord -D plughw:0,0`
+  takes the capture device exclusively, so the host loses its own
+  microphone, and `plughw` indices follow USB enumeration order. The
+  PipeWire PulseAudio socket (`$XDG_RUNTIME_DIR/pulse/native`) moves for
+  neither reason. `ARECORD_DEVICE`/`APLAY_DEVICE` become `pulse`, which is
+  configuration — **`gab_server.py` is untouched again**, same as the
+  endpoints work.
+- **A second image, `Dockerfile.voice`, on debian-slim.** Forced: CTranslate2
+  and onnxruntime ship manylinux wheels only, and on musl both build from
+  source. It installs `faster-whisper`, `piper-tts` and `numpy` — the three
+  dependencies G.A.B.'s `CLAUDE.md` already accepts, no others.
+- **The container runs as the socket's uid** (`HOST_UID`, default 1000).
+  The socket is mode 0700, so a group cannot substitute. Consequence worth
+  knowing: the API image runs as 10001 and chowns `/data`, so an existing
+  `gab-data` volume needs a one-time `chown` when switching. The override's
+  header has the command.
+- **The single-writer hazard did not go away, it moved.** The host's
+  `systemctl --user stop gab` is now a prerequisite, and it is the real
+  reason voice and Docker used to be mutually exclusive — not the mic.
+
+**Not verified against hardware.** No audio device or Docker daemon with
+sound in the dev environment. What *is* verified: both entrypoint modes run,
+the compose merge resolves correctly (context kept, dockerfile swapped,
+`gab-data` preserved, socket and models appended), voice mode degrades to a
+working-but-mute assistant when the models are absent rather than spinning
+on `arecord`, and the default API-only path is unchanged. The socket path,
+the uid match and the ALSA `pulse` plugin all want a real desk.
+
+### Where this goes on k3s
+
+Ryan's next step is k3s across the main PC, a few Raspberry Pis (one of them
+holding the mic for the Home Assistant side) and the always-on server. This
+design survives that: "the pod that listens runs on the node holding the
+microphone" is a `nodeSelector` plus a `hostPath` mount of the same socket.
+
+What will **not** survive is Whisper on a Pi — `base.en` on a Pi CPU is
+slower than the speech it transcribes, which is why `GAB_STT_MODEL_SIZE` is
+an env var. When that bites, split it rather than shrinking the model: keep
+capture and playback on the Pi and POST to `/api/ai/stt`, `/api/ai/ask` and
+`/api/ai/tts` on the always-on server. Those three endpoints already exist
+and already speak exactly that protocol — the brain is network-shaped
+already, only capture and playback are physically pinned.
+
 ### Merge order
 
 The submodule pointer recorded here points at the branch commit in

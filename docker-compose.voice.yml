@@ -1,0 +1,144 @@
+# VOICE MODE — G.A.B. keeps its ears inside the container.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
+#
+# An override rather than a profile or a second service, because there can
+# only ever be ONE G.A.B.: two of them writing gab_data.json is a lost write,
+# not a redundancy. This changes the existing `gab` service in place.
+#
+# WHAT IT DOES. The base stack builds G.A.B.'s API-only image, which has no
+# arecord, no aplay and no models — a container has no microphone, as its
+# Dockerfile says. That was a choice, not a law. This swaps in
+# Dockerfile.voice and mounts the host's audio server socket, so the wake
+# word, STT and TTS run in here and the voice assistant stops needing a
+# separate systemd unit on the host.
+#
+# WHY A SOCKET AND NOT `devices: [/dev/snd]`. Two reasons, both practical:
+#
+#   - gab_server.py records with `arecord -D plughw:0,0`, which takes the
+#     capture device EXCLUSIVELY. The host's PipeWire already holds it, and
+#     whichever of them wins, the other has no microphone.
+#   - plughw indices are USB enumeration order. Plug in a webcam, reboot,
+#     and card 0 is something else. The socket does not move.
+#
+# Everything below is configuration. gab_server.py is not modified by any of
+# it — ARECORD_DEVICE and APLAY_DEVICE already pass straight through to
+# `arecord -D` and `aplay -D`.
+#
+# ---------------------------------------------------------------------------
+# BEFORE THE FIRST `up`, three things:
+#
+# 1. STOP THE HOST'S G.A.B.  `systemctl --user stop gab`. This is the same
+#    single-writer rule the base compose file warns about for gab_data.json,
+#    and it is the actual reason voice and Docker used to be exclusive. Voice
+#    moving in here does not repeal it, it just moves which process holds it.
+#
+# 2. PUT THE PIPER VOICE ON THE MODELS VOLUME. It is a ~63MB hand-installed
+#    .onnx that no script fetches, so an empty volume means an assistant that
+#    hears you and never answers:
+#
+#      docker compose cp ~/gab/models/jarvis-medium.onnx gab:/models/
+#
+#    Whisper is the opposite — faster-whisper pulls it from HuggingFace on
+#    first use, into HF_HOME on this same volume, so it survives a recreate.
+#
+# 3. CHECK YOUR UID.  The socket is mode 0700, so the container must run as
+#    the uid that owns it; a group cannot get you in. 1000 is right on a
+#    single-user desktop. If `id -u` says otherwise, put HOST_UID/HOST_GID in
+#    .env and rebuild — they are a build arg as well as a runtime setting,
+#    since the image creates that user.
+#
+#    One consequence: the API image runs as uid 10001 and chowns /data to it,
+#    so an EXISTING gab-data volume is unreadable to this one. Once, after
+#    switching:
+#
+#      docker compose down
+#      docker run --rm -v unified-dashboard-personal_gab-data:/data \
+#          alpine chown -R 1000:1000 /data
+#
+#    (`docker volume ls` if the project prefix differs.)
+# ---------------------------------------------------------------------------
+#
+# LATER, ON k3s. This does not become a dead end. The rule it encodes —
+# "the pod that listens runs on the node holding the microphone" — is a
+# nodeSelector plus a hostPath mount of the same socket, which is the same
+# shape written in Kubernetes. What will NOT survive the move is running
+# Whisper on a Pi: base.en on a Pi CPU is slower than the speech it is
+# transcribing. When that day comes, split it — keep capture and playback on
+# the Pi and POST to /api/ai/stt, /api/ai/ask and /api/ai/tts on the
+# always-on server, which already exist and already speak exactly that
+# protocol.
+
+services:
+  gab:
+    build:
+      # Restated rather than inherited: the base file uses the short
+      # `build: ./gab-assistant` form, and a merge that silently lost the
+      # context would fail in a confusing place.
+      context: ./gab-assistant
+      dockerfile: Dockerfile.voice
+      args:
+        HOST_UID: "${HOST_UID:-1000}"
+        HOST_GID: "${HOST_GID:-1000}"
+
+    # Must match the socket's owner. See note 3 in the header.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+
+    environment:
+      # The one switch. Without it the voice image comes up as an API-only
+      # G.A.B. that merely happens to have arecord installed — the entrypoint
+      # clears WAKE_LISTENER exactly as it does in the base image.
+      GAB_VOICE: "1"
+
+      # ALSA's `pulse` plugin reads this to find the server. The path is the
+      # CONTAINER's, and is deliberately uid-free: the host side of the mount
+      # below is what carries the uid, so this line does not change when
+      # yours does.
+      PULSE_SERVER: "unix:/run/pulse/native"
+
+      # Both default to "pulse" in the entrypoint; set here because these are
+      # the two settings most likely to need a real value on a real desk, and
+      # finding them means knowing to read the entrypoint otherwise.
+      #
+      # To pin a specific output — a receiver rather than whatever PipeWire
+      # last called default — take a name from `aplay -L` on the HOST and put
+      # it here. gab_server.py's own comments on APLAY_DEVICE and
+      # SPEAK_PREROLL_MS are worth reading first if that output is Bluetooth.
+      GAB_ARECORD_DEVICE: "pulse"
+      GAB_APLAY_DEVICE: "pulse"
+
+      # Whisper size. base.en is right on a desktop CPU; this is a knob
+      # because the hardware under it is about to stop being uniform (see the
+      # k3s note above), and that is a deployment fact rather than a code
+      # change.
+      GAB_STT_MODEL_SIZE: "${GAB_STT_MODEL_SIZE:-base.en}"
+
+      # The wake loop asks this model, and it is the one upstream here that
+      # actually wants the GPU. Already correct via the base file's `ollama`
+      # service; repointed only if the LLM lives on another box.
+      # GAB_OLLAMA_URL: "http://workstation:11434"
+
+    volumes:
+      # THE MICROPHONE AND THE SPEAKER. PipeWire's PulseAudio compatibility
+      # socket, provided by pipewire-pulse — not `pipewire-0` next to it,
+      # which speaks the native protocol that ALSA's `pulse` plugin cannot.
+      # If this path does not exist on the host, pipewire-pulse is not
+      # running, and that is the first thing to check when nothing is heard.
+      #
+      # Read-write, and it has to be: connecting to a unix socket needs write
+      # permission on it, so a :ro mount here fails in a way that reads like
+      # a missing device.
+      - "${XDG_RUNTIME_DIR:-/run/user/1000}/pulse/native:/run/pulse/native"
+
+      # Piper's voice, and Whisper's download cache. A volume rather than a
+      # layer: gigabytes for one, hand-installed and not script-reproducible
+      # for the other.
+      - gab-models:/models
+
+      # IF NOTHING IS HEARD AND THE SOCKET IS CORRECT, the host may be
+      # requiring cookie auth rather than granting the connection on uid
+      # alone. Uncommon under pipewire-pulse, but this is the fix:
+      #   - "${HOME}/.config/pulse/cookie:/home/gab/.config/pulse/cookie:ro"
+
+volumes:
+  gab-models:

@@ -61,12 +61,25 @@ G.A.B.'s HUD, which is where you add the tasks and reminders the panel shows.
 A fresh `gab-data` volume starts empty, so the panel comes up linked and
 blank rather than seeded with fixture data.
 
-Three things about that stack are worth knowing before they surprise you:
+Four things about that stack are worth knowing before they surprise you:
 
-- **The `gab` container is API and HUD only.** No wake word, no STT, no TTS —
-  a container has no microphone. The voice assistant proper still runs on a
-  host as a systemd user service; this image exists so the dashboard has
-  something to read. See `gab-assistant/docker-entrypoint.py`.
+- **The `gab` container is API and HUD only, by default.** No wake word, no
+  STT, no TTS — a panel does not need ears, and this image exists so the
+  dashboard has something to read. See `gab-assistant/docker-entrypoint.py`.
+  **Voice is available in the same stack** when you want it:
+
+  ```sh
+  docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
+  ```
+
+  That swaps in G.A.B.'s voice image and mounts the host's PipeWire socket,
+  so the wake word, STT and TTS run in the container instead of a systemd
+  unit on the host. "A container has no microphone" was a choice, not a law
+  — it has whatever you mount into it. Read the header of
+  `docker-compose.voice.yml` before the first `up`: the host's G.A.B. has to
+  be stopped first (one writer for `gab_data.json`), the Piper voice has to
+  be copied onto the models volume, and the container has to run as the uid
+  that owns the socket.
 - **Ollama reads the real model library** at `/mnt/llms` (override with
   `OLLAMA_MODELS_PATH`), not a fresh volume — so `Gab:v2` is already there.
   It is hand-built and deliberately not reproducible by a script, so an empty
