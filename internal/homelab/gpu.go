@@ -17,6 +17,12 @@ import (
 // shell out to nvidia-smi. It reads a small Tailscale-reachable agent on the
 // workstation instead.
 //
+// TOPOLOGY: the GPU (RTX 5070 Ti) and the LLM live on Ryan's main PC; this
+// dashboard and everything else live on the always-on server. So this is the
+// one upstream that crosses machines, and the one expected to be legitimately
+// offline whenever the main PC is off. That is why an unreachable agent
+// degrades only the GPU lane and never the panel.
+//
 // CONTRACT the agent must serve at GET /gpu — one field per nvidia-smi query
 // column, so the agent stays a thin wrapper over:
 //

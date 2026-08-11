@@ -22,11 +22,15 @@ const (
 	// HOST binds all interfaces because reachability is handled one layer up
 	// by Tailscale ACLs, per the "no auth beyond Tailscale" non-goal.
 	HOST = "0.0.0.0"
-	PORT = 8088
+	// 8080 is SearXNG and 8880 is ntfy. This stack lives in 8881-8889:
+	//   8881 dashboard · 8882 G.A.B. · 8883 GPU agent
+	PORT = 8881
 
 	// --- upstreams ---
 	// G.A.B.'s read-only assignments endpoint. Local-only; never written to.
-	GABBaseURL = "http://127.0.0.1:8080"
+	// CONFIRM: 8882 is this project's reservation for G.A.B., not a port
+	// G.A.B. is known to be listening on yet.
+	GABBaseURL = "http://127.0.0.1:8882"
 	// The workstation agent exposing nvidia-smi. The dashboard does NOT run
 	// on the workstation, so this is always a remote (Tailscale) address.
 	GPUAgentURL     = ""
@@ -56,28 +60,34 @@ const (
 )
 
 // ============================================================
-// ATTENTION THRESHOLDS
+// ATTENTION THRESHOLDS — all confirmed with Ryan, 2026-08-11.
 //
-// !! UNCONFIRMED — PLACEHOLDERS, NOT DECISIONS !!
+// The comparison is ">=", per docs/dashboard-ui.md's "at or above", so a card
+// reporting exactly 80 °C does fire.
 //
-// docs/dashboard-ui.md: "Do not ship the placeholders as if they were
-// chosen. Ask." These are carried over verbatim from that document and are
-// still waiting on real values from Ryan:
-//   - which containers are actually load-bearing
-//   - what GPU temp is too hot for this card
-//   - what disk percentage actually matters on the NAS
-// Until then the dashboard logs a warning at startup naming this block.
+// The watched list is the services whose being down actually changes Ryan's
+// day. It is expected to grow as he adds things — that is why it is one
+// comma-separated env var and not a code change.
+//
+// Deliberately NOT watched: the dashboard's own container. If it is down there
+// is no panel to report it on, so watching itself buys nothing.
 // ============================================================
 
 var (
-	AttentionContainers = []string{} // UNCONFIRMED — empty: rule 2 never fires
-	AttentionGPUTempC   = 80.0       // UNCONFIRMED
-	AttentionDiskPct    = 90.0       // UNCONFIRMED
+	AttentionContainers = []string{
+		"ollama",     // the LLM G.A.B. talks to
+		"searxng",    // search
+		"open-webui", // chat front end
+		"ntfy",       // G.A.B.'s notification path — silent failure is the bad one
+		"gab",        // the assistant this dashboard reads from
+	}
+	AttentionGPUTempC = 80.0
+	AttentionDiskPct  = 85.0
 )
 
-// ThresholdsUnconfirmed reports whether the attention rule is still running on
-// placeholders, so main can say so out loud rather than pretending.
-func (c Config) ThresholdsUnconfirmed() bool {
+// NoWatchedContainers reports that attention rule 2 cannot fire, so main can
+// say so out loud instead of the rule being quietly dead.
+func (c Config) NoWatchedContainers() bool {
 	return len(c.AttentionContainers) == 0
 }
 

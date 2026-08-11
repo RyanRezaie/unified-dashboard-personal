@@ -113,7 +113,7 @@ body{
 .row.hot .due{color:var(--a);text-shadow:0 0 8px rgba(255,157,61,0.5);}
 
 /* weekly objectives */
-.wk{margin-bottom:16px;}
+.wk{margin-bottom:10px;}
 .wkh{display:flex;align-items:center;gap:12px;}
 .wkn{border:2px solid var(--l);flex-shrink:0;transform:rotate(45deg);}
 .wkt{color:var(--t);letter-spacing:1px;}
@@ -138,6 +138,9 @@ body{
 .rtext{color:var(--t);letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .rrep{margin-left:auto;color:var(--td);letter-spacing:2px;flex-shrink:0;
   border:1px solid rgba(255,157,61,0.2);}
+
+/* A redacted reminder reads as deliberately withheld, not as its own content. */
+.rtext.private{color:var(--td);font-style:italic;letter-spacing:2px;}
 
 /* meters */
 .meter{border-bottom:1px solid rgba(45,232,247,0.08);}
@@ -232,13 +235,15 @@ body{
 .mon .sn{font-size:13px;}
 .mon .sc{font-size:21px;}
 .mon .sd{font-size:14px;margin-top:6px;}
-.mon .strip{font-size:14px;padding-top:16px;margin-top:26px;}
-.mon .callout-blk{padding:14px 16px;margin-top:20px;}
+.mon .strip{font-size:14px;padding-top:14px;margin-top:22px;}
+.mon .callout-blk{padding:12px 16px;margin-top:14px;}
 .mon .callout-blk .cl{font-family:'Orbitron',sans-serif;font-size:11px;
   letter-spacing:4px;color:var(--a);}
-.mon .callout-blk .cs{font-size:18px;letter-spacing:1px;color:#ffd8ad;margin-top:9px;}
+.mon .callout-blk .cs{font-size:18px;letter-spacing:1px;color:#ffd8ad;margin-top:8px;}
 .mon .callout-blk .cd{font-family:'Orbitron',sans-serif;font-size:13px;
-  letter-spacing:2px;color:var(--td);margin-top:7px;}
+  letter-spacing:2px;color:var(--td);margin-top:5px;}
+.mon .callout-blk .cmore{font-family:'Orbitron',sans-serif;font-size:12px;
+  letter-spacing:3px;color:var(--a);margin-top:10px;opacity:0.85;}
 
 /* monitor header — the countdown lives here, not as a centred hero */
 .mhead{display:flex;align-items:center;gap:40px;padding-bottom:26px;
@@ -262,7 +267,7 @@ body{
 .core-txt.amb{color:var(--a);text-shadow:0 0 14px rgba(255,157,61,0.5);}
 
 .lanes{display:grid;grid-template-columns:1.25fr 1fr 1.05fr;gap:44px;flex:1;min-height:0;}
-.lane{min-width:0;display:flex;flex-direction:column;}
+.lane{min-width:0;display:flex;flex-direction:column;overflow:hidden;}
 .lane .blk + .blk{margin-top:26px;}
 
 /* ============================================================
@@ -522,7 +527,20 @@ const STATE_URL   = "/api/state";
 const CONFIG_URL  = "/api/config";
 const TICK_MS     = 1000;     // display tick: clock + countdown, zero server cost
 const HOT_HOURS   = 24;       // an assignment inside this window renders "hot"
+// The monitor has a fixed 1080px of height and nothing may fall below the
+// fold, so the two unbounded lists are capped. Overflow is stated, never
+// silently dropped — "+2 MORE" is information, a cut-off row is a bug.
+// 2 is what lane 3 actually has room for below HOMELAB and REMINDERS. Nothing
+// is lost by capping: a down container is still amber in the container list
+// and an overdue reminder is still amber in the reminders block — NEEDS YOU is
+// a summary of those, not their only home.
+const MAX_NEEDS   = 2;
+const MAX_REMINDERS = 3;
 const RING_HORIZON_H = 168;   // phone ring is a 7-day horizon
+// Shown on the monitor in place of a private reminder's words. Matches
+// REDACTED_TEXT in internal/state, which redacts the NEEDS YOU panel's copy
+// server-side — those words never reach the browser at all.
+const REDACTED_TEXT = "private reminder";
 
 let POLL_MS = 20000;          // replaced by /api/config (pinned at 20s in the spec)
 let BURN = {drift_px:0, drift_period_min:17, dim_start_hour:23, dim_end_hour:7, dim_opacity:1};
@@ -613,6 +631,9 @@ function overdueShort(ms){
     : mins + "m";
 }
 
+// "PHYS 2425 — Lab report", or just the title when G.A.B. has no course for it.
+const assignmentLabel = (a) => (a.course ? a.course + " — " + a.title : a.title);
+
 const parseTime = (s) => (s ? new Date(s) : null);
 const pct = (n) => Math.max(0, Math.min(100, n)).toFixed(0);
 
@@ -643,9 +664,12 @@ function assignmentRow(a, now, opts){
   const hot = a.dueAt && (a.dueAt - now) / 36e5 < HOT_HOURS;
   const cls = "row" + (a.done ? " done" : "") + (hot && !a.done ? " hot" : "");
   const title = opts && opts.short ? a.title.split(" — ")[0] : a.title;
+  // G.A.B. currently stores only a name and a due date, so course is often
+  // absent. Omit the column entirely rather than reserving 104px of empty
+  // gutter on every row — the title simply starts where the course would.
+  const course = a.course ? `<span class="course">${esc(a.course)}</span>` : "";
   return `<div class="${cls}">
-    <span class="node"></span>
-    <span class="course">${esc(a.course)}</span>
+    <span class="node"></span>${course}
     <span class="what">${esc(title)}</span>
     <span class="due">${esc(dueShort(a.dueAt, now))}</span>
   </div>`;
@@ -657,15 +681,19 @@ function taskRow(t){
   </div>`;
 }
 
-function reminderRow(r, now){
+// surface is "monitor" or "phone". A private reminder keeps its row, its time
+// and its overdue tag on both — only the words are withheld, and only on the
+// monitor, which is readable by anyone in the room for as long as it is up.
+function reminderRow(r, now, surface){
   const due = parseTime(r.due);
   const over = r.enabled && !r.acknowledged && due && due < now;
+  const text = (r.private && surface === "monitor") ? REDACTED_TEXT : r.text;
   const tail = over
     ? `<span class="odue">OVERDUE ${esc(overdueShort(now - due))}</span>`
     : `<span class="rrep">${esc(r.repeat || "ONCE")}</span>`;
   return `<div class="rem${over ? " over" : ""}">
     <span class="rtime">${due ? pad2(due.getHours()) + ":" + pad2(due.getMinutes()) : "--:--"}</span>
-    <span class="rtext">${esc(r.text)}</span>${tail}
+    <span class="rtext${r.private ? " private" : ""}">${esc(text)}</span>${tail}
   </div>`;
 }
 
@@ -740,7 +768,7 @@ function renderMonitor(now){
 
   const next = nextDue(now);
   const cd   = countdown(next ? next.dueAt : null, now);
-  $("m-next-title").textContent = next ? next.course + " — " + next.title : "NOTHING DUE";
+  $("m-next-title").textContent = next ? assignmentLabel(next) : "NOTHING DUE";
   $("m-next-when").textContent  = next ? dueLabel(next.dueAt, now) : "";
   $("m-count").textContent      = cd.compact;
 
@@ -793,11 +821,11 @@ function renderMonitor(now){
   const reminders = state.reminders || [];
   $("m-rem-blk").style.display = state.have && state.have.reminders ? "" : "none";
   $("m-reminders").innerHTML = reminders.length
-    ? reminders.map((r) => reminderRow(r, now)).join("")
+    ? reminders.slice(0, MAX_REMINDERS).map((r) => reminderRow(r, now, "monitor")).join("")
     : emptyRow("NONE TODAY");
 
   // --- NEEDS YOU: exists only when something is waiting on a person ---
-  $("m-needs").innerHTML = attn.active ? needsPanel(attn, "blk callout-blk") : "";
+  $("m-needs").innerHTML = attn.active ? needsPanel(attn, "blk callout-blk", MAX_NEEDS) : "";
 
   // --- status strip ---
   const gabOK = state.gab_status.ok;
@@ -815,11 +843,16 @@ function renderMonitor(now){
   $("s-version").textContent = "DASHBOARD v0.1" + (window.__stub ? " · STUB" : "");
 }
 
-function needsPanel(attn, cls){
-  const rows = attn.reasons.map((r) =>
+// limit is the number of reasons to print; the rest are counted, not hidden.
+// The phone passes no limit — it scrolls, so it has nothing to protect.
+function needsPanel(attn, cls, limit){
+  const shown = limit ? attn.reasons.slice(0, limit) : attn.reasons;
+  const rows = shown.map((r) =>
     `<div class="cs">${esc(r.text)}</div><div class="cd">${esc(r.detail)}</div>`).join("");
+  const hidden = attn.reasons.length - shown.length;
+  const more = hidden > 0 ? `<div class="cmore">+${hidden} MORE</div>` : "";
   return `<div class="${cls}">
-    <div class="cl">NEEDS YOU — ${attn.reasons.length}</div>${rows}
+    <div class="cl">NEEDS YOU — ${attn.reasons.length}</div>${rows}${more}
   </div>`;
 }
 
@@ -906,7 +939,7 @@ function phoneHome(now, attn){
         </div>
         <div class="below"></div></div>
     </div>
-    <div class="subj">${next ? esc(next.course + " — " + next.title) : "NOTHING DUE"}</div>
+    <div class="subj">${next ? esc(assignmentLabel(next)) : "NOTHING DUE"}</div>
     <div class="metaline">${next ? "DUE " + esc(dueLabel(next.dueAt, now)) : ""}</div>
   </div>
   <div class="sum">
@@ -943,7 +976,7 @@ function phoneTasks(now){
   }
   if (have.reminders) {
     html += `<div style="margin-top:16px;"><div class="sl amb">REMINDERS</div>`
-      + (state.reminders || []).map((r) => reminderRow(r, now)).join("") + `</div>`;
+      + (state.reminders || []).map((r) => reminderRow(r, now, "phone")).join("") + `</div>`;
   }
   return html;
 }

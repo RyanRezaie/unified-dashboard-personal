@@ -13,30 +13,32 @@ services:
     restart: unless-stopped
     # Bound to the Tailscale interface in practice; published here for the LAN.
     ports:
-      - "8088:8088"
+      - "8881:8881"
     volumes:
       - dashboard-data:/data
     environment:
       TZ: America/Chicago
 
       # --- upstreams ---
-      # G.A.B.'s read-only assignments endpoint.
-      GAB_URL: "http://gab:8080"
-      # The workstation agent wrapping nvidia-smi. The dashboard does not run
-      # on the workstation, so this is a Tailscale address.
-      GPU_AGENT_URL: "http://workstation:9100"
+      # G.A.B.'s read-only assignments endpoint. Same always-on server.
+      GAB_URL: "http://gab:8882"
+      # The GPU agent runs on the main PC (RTX 5070 Ti), which is where the
+      # LLM lives. This dashboard runs on the always-on server, so this is a
+      # Tailscale address across two machines and the one upstream expected
+      # to be offline whenever the main PC is.
+      GPU_AGENT_URL: "http://workstation:8883"
       PROXMOX_URL: "https://pve:8006"
       PROXMOX_NODE: "pve"
       PROXMOX_TOKEN_ID: "${PROXMOX_TOKEN_ID}"
       PROXMOX_TOKEN_SECRET: "${PROXMOX_TOKEN_SECRET}"
 
-      # --- attention thresholds ---
-      # UNCONFIRMED PLACEHOLDERS. The spec says not to ship these as if they
-      # were chosen; the server logs a warning while ATTENTION_CONTAINERS is
-      # empty. Fill in the load-bearing containers and real limits.
-      # ATTENTION_CONTAINERS: "ollama,searxng,ntfy,open-webui,qdrant"
-      # ATTENTION_GPU_TEMP_C: "80"
-      # ATTENTION_DISK_PCT: "90"
+      # --- attention thresholds (all confirmed) ---
+      # Defaults in internal/config already match; set here so they are visible
+      # at deploy time. Add to the container list as the homelab grows — it is
+      # an env var precisely so that is not a rebuild.
+      ATTENTION_CONTAINERS: "ollama,searxng,open-webui,ntfy,gab"
+      ATTENTION_GPU_TEMP_C: "80"
+      ATTENTION_DISK_PCT: "85"
 
 volumes:
   dashboard-data:

@@ -37,6 +37,8 @@ func StubSnapshot(now time.Time) Snapshot {
 			{ID: "r1", Text: "take out the trash", Due: model.LocalTime{Time: now.Add(-107 * time.Minute)}, Enabled: true, Repeat: "ONCE"},
 			{ID: "r2", Text: "PHYS 2425 lab report due", Due: day(1, 9, 0), Enabled: true, Repeat: "ONCE"},
 			{ID: "r3", Text: "stand up and stretch", Due: day(1, 14, 0), Enabled: true, Repeat: "WEEKDAYS"},
+			// Private: the monitor shows the time and the row, never the words.
+			{ID: "r4", Text: "pick up prescription", Due: day(0, 17, 30), Enabled: true, Repeat: "ONCE", Private: true},
 		},
 		Tasks: []model.Task{
 			{ID: "t1", Text: "Reply to advisor email", Done: true},
