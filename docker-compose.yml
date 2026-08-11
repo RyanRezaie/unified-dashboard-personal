@@ -129,17 +129,30 @@ services:
   # WHAT G.A.B. TALKS OUT TO
   # ============================================================
 
-  # The LLM. STARTS WITH NO MODELS — the volume is empty on first run, and
-  # `Gab:v2` is hand-built (qwen2.5:7b-instruct with the persona baked in) and
-  # explicitly not reproducible by a script, so nothing here pulls or builds
-  # it. G.A.B. answers questions only once the model exists:
+  # The LLM, reading the REAL model library at /mnt/llms rather than a fresh
+  # empty volume — so `Gab:v2` is already there. That matters more than it
+  # sounds: Gab:v2 is hand-built (qwen2.5:7b-instruct with the persona baked
+  # in), explicitly not reproducible by a script, and nothing here would ever
+  # pull or rebuild it. An empty volume would mean an Ollama that answers
+  # everything badly until it was rebuilt by hand.
   #
-  #   docker compose exec ollama ollama list          # what this instance has
-  #   docker compose exec ollama ollama pull qwen2.5:7b-instruct
-  #   # then create Gab:v2 from the Modelfile — NEVER rebuild an existing tag
+  # STOP THE HOST'S OLLAMA FIRST. Both want port 11434, and both writing the
+  # same model directory (a pull, a create) is a good way to corrupt it.
+  # Reading it from one place at a time is fine.
   #
-  # Simpler, if the real Ollama is already running with Gab:v2 in it: skip
-  # this service and point GAB_OLLAMA_URL at that one (see the header).
+  # IS /mnt/llms THE RIGHT LEVEL? Two layouts exist, depending on how
+  # OLLAMA_MODELS was set when the library was created:
+  #
+  #   ls /mnt/llms  →  blobs  manifests        ✓ as written below
+  #   ls /mnt/llms  →  models  id_ed25519      ✗ mount /mnt/llms/models instead
+  #
+  # Check before the first up; the symptom of getting it wrong is an Ollama
+  # that starts cleanly and lists no models.
+  #
+  # ON FEDORA / ANY SELINUX HOST: if the container logs permission denied on
+  # that path, the label is the reason — append `:z` to the mount (shared).
+  # Do NOT use `:Z`, which relabels the directory private to this container
+  # and takes the host's own Ollama's access away with it.
   #
   # NO GPU HERE BY DEFAULT. Passing one through needs the NVIDIA container
   # toolkit installed, and a `deploy.resources` block referencing a GPU that
@@ -160,8 +173,13 @@ services:
     restart: unless-stopped
     ports:
       - "11434:11434"
+    environment:
+      # Points Ollama at the mount below instead of its default
+      # /root/.ollama/models, so the host path can stay exactly as it is.
+      OLLAMA_MODELS: "/models"
     volumes:
-      - ollama-models:/root/.ollama
+      # Override the path in .env if the library ever moves.
+      - "${OLLAMA_MODELS_PATH:-/mnt/llms}:/models"
 
   # The chat front end for the same Ollama. Nothing in the dashboard or in
   # G.A.B. talks to it — it is here because it is part of this stack on the
@@ -234,6 +252,7 @@ services:
 volumes:
   dashboard-data:
   gab-data:
-  ollama-models:
   open-webui-data:
   ntfy-cache:
+  # No ollama volume: the models are a bind mount of the real library. See
+  # the ollama service.

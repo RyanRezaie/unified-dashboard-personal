@@ -67,9 +67,12 @@ Three things about that stack are worth knowing before they surprise you:
   a container has no microphone. The voice assistant proper still runs on a
   host as a systemd user service; this image exists so the dashboard has
   something to read. See `gab-assistant/docker-entrypoint.py`.
-- **Ollama starts with no models.** `Gab:v2` is hand-built and deliberately
-  not reproducible by a script, so nothing here pulls or creates it. Until it
-  exists, G.A.B. serves data fine and answers questions badly.
+- **Ollama reads the real model library** at `/mnt/llms` (override with
+  `OLLAMA_MODELS_PATH`), not a fresh volume — so `Gab:v2` is already there.
+  It is hand-built and deliberately not reproducible by a script, so an empty
+  volume would have meant an assistant that answers everything badly until it
+  was rebuilt by hand. **Stop the host's Ollama first**: both want port 11434,
+  and two of them writing one model directory is how it gets corrupted.
 - **You may already run Ollama, SearXNG, Open-WebUI and ntfy.** Two copies
   fight over a published port, so stop the old container as you move each one
   in here. `docker compose up -d dashboard gab` starts only what is new
