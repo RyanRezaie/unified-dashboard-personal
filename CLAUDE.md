@@ -111,16 +111,26 @@ yet.** The dashboard side is finished and merged-ready; this is the G.A.B. half 
 contract that makes attention rule 1 able to fire at all.
 
 ### Branching
-- **Continue on `claude/claude-md-recent-commits-axn2v9`** — the same branch as the
-  dashboard work. Nothing from this session has been merged yet, so splitting the G.A.B.
-  half onto its own branch would only fragment a change set Ryan reviews as one piece.
-  (An earlier draft of this section said to use a new branch; Ryan corrected that.)
-- The endpoint code itself goes in the **`gab-assistant` submodule**, in `gab_server.py`.
-  That is a separate git repo with its own history and remote — commit it there, on its
-  own branch in that repo, not in the parent.
-- The parent repo then needs a follow-up commit recording the new submodule pointer
-  (`git add gab-assistant && git commit -m "bump gab-assistant submodule"`) — on this
-  branch.
+Ryan wants these reviewed and merged as two separate things:
+
+- **`claude/claude-md-recent-commits-axn2v9`** holds all the dashboard work — the Go
+  backend, the UI, tests, config, and this handoff. It is finished and pushed. **Do not
+  add G.A.B. endpoint work to it.**
+- **The G.A.B. work goes on a NEW branch in the parent repo** (suggested:
+  `claude/gab-dashboard-endpoints`). Cut it from the **default branch**, not from the
+  dashboard branch — otherwise it drags every dashboard commit along and stops being a
+  separate reviewable change.
+- The endpoint code itself lives in the **`gab-assistant` submodule**, in
+  `gab_server.py`. That is a separate git repo with its own history and remote — commit
+  it there, on its own branch in that repo. The parent repo only records *which commit*
+  it points at, so the new parent branch gets one follow-up commit:
+  `git add gab-assistant && git commit -m "bump gab-assistant submodule"`.
+
+Note while both branches are unmerged: the contract this work implements (response
+shapes, the `private` flag, the Privacy section) lives in `CLAUDE.md` and `README.md` on
+the **dashboard** branch. If the new branch is cut from the default branch, those files
+will not be there — read them from the dashboard branch, or from this section, which
+restates everything needed below.
 
 ### Getting at the submodule
 In a Claude Code web session the submodules are **not cloned** — `git submodule update
