@@ -111,14 +111,16 @@ yet.** The dashboard side is finished and merged-ready; this is the G.A.B. half 
 contract that makes attention rule 1 able to fire at all.
 
 ### Branching
-- The dashboard work lives on `claude/claude-md-recent-commits-axn2v9` — finished and
-  pushed, meant to be merged on its own.
-- **Do this work on a NEW branch**, not that one. It touches a different repo.
-- The endpoint code goes in the **`gab-assistant` submodule**, in `gab_server.py`. It is
-  a separate git repo with its own history and remote — commit there, not in the parent.
-- Afterwards the parent repo needs a follow-up commit recording the new submodule
-  pointer (`git add gab-assistant && git commit -m "bump gab-assistant submodule"`), also
-  on a new branch here.
+- **Continue on `claude/claude-md-recent-commits-axn2v9`** — the same branch as the
+  dashboard work. Nothing from this session has been merged yet, so splitting the G.A.B.
+  half onto its own branch would only fragment a change set Ryan reviews as one piece.
+  (An earlier draft of this section said to use a new branch; Ryan corrected that.)
+- The endpoint code itself goes in the **`gab-assistant` submodule**, in `gab_server.py`.
+  That is a separate git repo with its own history and remote — commit it there, on its
+  own branch in that repo, not in the parent.
+- The parent repo then needs a follow-up commit recording the new submodule pointer
+  (`git add gab-assistant && git commit -m "bump gab-assistant submodule"`) — on this
+  branch.
 
 ### Getting at the submodule
 In a Claude Code web session the submodules are **not cloned** — `git submodule update
