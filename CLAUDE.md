@@ -98,21 +98,24 @@ The UI design is settled. `docs/dashboard-ui-mockup.html` is the visual referenc
   server-side because that panel is monitor-only. **G.A.B. serves this now** at
   `/api/reminders?view=dashboard` (why the parameter: next section) — attention rule 1
   fires. What is still open is how a reminder gets *marked* private.
-- **What else G.A.B. exposes besides assignments.** `/api/tasks` and `/api/objectives`
-  are still **proposed** and still unbuilt, so the DAILY and WEEKLY OBJECTIVES blocks
-  hide themselves — `internal/gab` treats a 404 as "not implemented yet" rather than
-  failing. Shapes are in `internal/model`, marked `UNPINNED`.
+- **What else G.A.B. exposes besides assignments.** `/api/tasks` and
+  `/api/objectives` are built now, so all four blocks populate. `internal/gab`
+  still treats a 404 as "not implemented yet" rather than failing, which is what
+  keeps the panel alive against an older G.A.B. Shapes are in `internal/model`,
+  still marked `UNPINNED` — they are this side's proposal, and G.A.B. matched it.
 
 ## G.A.B.'s endpoints — WRITTEN, awaiting review
 
 The G.A.B. half of the contract exists now. It lives in the **`gab-assistant`
-submodule** on branch `claude/dashboard-endpoints` (one commit, pushed); this
-parent branch carries the submodule pointer bump and this note. Two read-only
-endpoints, on G.A.B.'s existing server:
+submodule** on branch `claude/dashboard-endpoints` (pushed); this parent branch
+carries the submodule pointer bump, this note, and the small dashboard-side
+changes called out below. Four read-only endpoints, on G.A.B.'s server:
 
 ```
 GET /api/assignments
 GET /api/reminders?view=dashboard
+GET /api/tasks
+GET /api/objectives
 ```
 
 Nothing new is stored on G.A.B.'s side. The full write-up is in the submodule's
@@ -137,33 +140,39 @@ Nothing new is stored on G.A.B.'s side. The full write-up is in the submodule's
   acknowledge action, but `REMINDER_TASK_IMPORT` already puts a dated reminder
   on the daily list when its day arrives, and "Gab, mark the lab report as done"
   ticks it off. That tick is the only "I dealt with it" signal in the store.
-- **`private` is honoured but never set.** Reading it and defaulting to `false`
-  is done; deciding how a reminder *gets* marked was left alone deliberately —
-  see the questions below. Until then it is hand-edited into `gab_data.json`.
+- **`private` is set two ways, both confirmed by Ryan.** A spoken marker
+  ("private reminder: …", "privately", "keep it private") that strips itself
+  back out of the reminder text and gets confirmed out loud, and a
+  HIDE/UNHIDE button on every row of G.A.B.'s HUD in EDIT mode, which is also
+  the undo. Matching is lexical and whole-word — a bare "private" is
+  deliberately not a marker. Default stays `false`.
+- **The flag follows the reminder into the task list.** G.A.B. copies a dated
+  reminder's text onto the daily list when its day arrives, so that task is
+  marked private too and `model.Task` grew a `Private` field to carry it.
+  `taskRow` redacts on the monitor exactly like `reminderRow`. Without that,
+  a private reminder's words came back on the panel as an ordinary task.
+- **`/api/tasks` and `/api/objectives` exist now**, so the DAILY and WEEKLY
+  OBJECTIVES blocks populate instead of hiding. They are the same lists
+  `/api/state` serves, reshaped — `priority` and `linked` dropped, objectives
+  carrying `done`/`total`.
 
-**Verified end to end**, not against a stub: the real `Handler` on a temp copy
-of `gab_data.example.json`, with `GAB_URL` pointed at it. Assignments and
-reminders populate, `gab_status.ok` is true, an overdue reminder raises
-attention, and a private one comes through as "a private reminder is overdue"
-with the time intact. `go vet` and `go test ./...` pass.
+**G.A.B. moved to 8882.** It served 8420 for its whole history; Ryan asked for
+the move, so `config.GABBaseURL` is correct as written now and its `CONFIRM:`
+comment is answered. One consequence code cannot handle: G.A.B.'s Spotify
+redirect URI is derived from its port but is *also* registered at
+developer.spotify.com, so the 8882 URI has to be added there or that login
+starts failing. Nothing on this side is affected.
 
-### Questions for Ryan — answer these before merging
+**Verified end to end**, not against a stub, and with no `GAB_URL` override —
+the default config points at the real G.A.B. now. All four blocks populate,
+`gab_status.ok` is true, an overdue reminder raises attention, and a private
+one comes through as "a private reminder is overdue" with the time intact.
+`go vet`, `go test ./...` and `gofmt` are clean.
 
-1. **G.A.B.'s port is 8420, not 8882.** That is the value in `gab_server.py`'s
-   `PORT` constant today, and the systemd unit and README use it throughout.
-   8882 was this project's reservation, never something G.A.B. was listening on.
-   Nothing was changed — G.A.B.'s constants are not ours to move. Either move
-   G.A.B. to 8882, or set `config.GABBaseURL` to `http://127.0.0.1:8420`. The
-   `CONFIRM:` comment on that constant is still there, unanswered.
-2. **How does a reminder get marked private?** A voice phrase ("private
-   reminder: pick up the prescription"), a toggle on G.A.B.'s HUD, or a keyword
-   list? This was not guessed at, per the instruction in this file. Until it is
-   decided, the flag works but only a hand-edit sets it.
-3. **`/api/tasks` and `/api/objectives` — still not built.** The dashboard treats
-   a 404 as "not implemented" and hides the DAILY and WEEKLY OBJECTIVES blocks,
-   so today the monitor shows assignments and reminders and hides those two. The
-   data is already in G.A.B.'s `/api/state`; say the word and they are a short
-   addition.
+Both surfaces were also driven in a real browser (Playwright + the
+pre-installed Chromium): the monitor never prints a private reminder's or a
+private task's words, the phone prints both, and G.A.B.'s own HUD toggle marks
+a row without also switching the reminder off on the way past.
 
 ### Merge order
 
