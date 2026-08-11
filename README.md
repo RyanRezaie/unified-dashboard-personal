@@ -10,10 +10,24 @@ reference. This file covers how to run it.
 ## Run it
 
 ```sh
-# With fixture data — no G.A.B., no Proxmox, no GPU agent needed.
+# Real data. Needs G.A.B. on GAB_URL; Proxmox and the GPU agent degrade to a
+# failed lane if unset rather than taking the panel down.
+go run ./cmd/dashboard
+
+# Fixture data — no G.A.B., no Proxmox, no GPU agent needed.
 DASHBOARD_STUB=1 go run ./cmd/dashboard
-# → http://localhost:8881
 ```
+
+Then open **http://localhost:8881**. The startup line says the same thing, but
+note that the *bind* address is `0.0.0.0` — that is a wildcard meaning "every
+interface", not somewhere a browser can go, and Chrome rejects it outright.
+Bound that way, the panel is also reachable at this machine's LAN and
+Tailscale addresses, which is the point.
+
+**`DASHBOARD_STUB=1` serves the mockup's fixture data and contacts nothing.**
+That is what it is for — UI work without the homelab running — but it means a
+stubbed panel looks like `docs/dashboard-ui-mockup.html` no matter what G.A.B.
+is doing. If the numbers on screen never change, check that flag first.
 
 Resize the window past 1100px to switch between the two surfaces: the monitor
 layout above, the phone layout below.
@@ -31,7 +45,7 @@ No secret has a default.
 | Env | Default | What |
 |---|---|---|
 | `DASHBOARD_HOST` / `DASHBOARD_PORT` | `0.0.0.0:8881` | Bind address |
-| `GAB_URL` | `http://127.0.0.1:8882` | G.A.B., for `GET /api/assignments` |
+| `GAB_URL` | `http://127.0.0.1:8882` | G.A.B. — assignments, reminders, tasks, objectives |
 | `GPU_AGENT_URL` | — | Workstation agent wrapping `nvidia-smi` |
 | `PROXMOX_URL` / `PROXMOX_NODE` | — | Proxmox API |
 | `PROXMOX_TOKEN_ID` / `PROXMOX_TOKEN_SECRET` | — | API token; **env only** |
@@ -121,26 +135,20 @@ here by design.
 Logging is deliberately thin: only non-GET requests are logged, method and
 path only. No request bodies, no reminder text, no assignment titles.
 
-## Still open
+## What G.A.B. serves
 
-Carried from `docs/dashboard-ui.md`, plus one found while building:
+All four endpoints exist and are verified end to end. **G.A.B. listens on
+8882** — it served 8420 for its whole history and was moved to this project's
+reserved port, so `GAB_URL`'s default is right as written and needs no
+override. All four are read-only, and `internal/gab` has no write path to add
+to by accident.
 
-1. **G.A.B.'s port.** 8882 is this project's reservation, not a port G.A.B. is
-   known to be listening on.
-2. **G.A.B. endpoints beyond assignments** — `/api/tasks` and
-   `/api/objectives` are still proposed shapes; a 404 from either hides that
-   block rather than failing. See the reminders contract below, which is now
-   settled on this side.
-
-## What G.A.B. needs to serve
-
-`GET /api/assignments` is pinned in `docs/dashboard-ui.md`. Since G.A.B.
-currently stores only a name and a due date, `course` and `done` may be
-omitted — the UI drops the course column for rows without one rather than
-rendering an empty gutter.
-
-`GET /api/reminders` is what attention rule 1 runs on. Until it exists, that
-rule can never fire:
+| Path | Feeds |
+|---|---|
+| `GET /api/assignments` | the ASSIGNMENTS block and the NEXT DUE countdown |
+| `GET /api/reminders?view=dashboard` | the REMINDERS block and attention rule 1 |
+| `GET /api/tasks` | DAILY |
+| `GET /api/objectives` | WEEKLY OBJECTIVES |
 
 ```json
 {
@@ -158,6 +166,36 @@ rule can never fire:
 }
 ```
 
-`private` is the flag described under Privacy above. Anything G.A.B. would not
-want read aloud by a panel on the wall should set it. Both endpoints are
-read-only; `internal/gab` has no write path.
+Three things about that shape are G.A.B.'s side of the contract rather than
+this side's, and are worth knowing when reading the panel:
+
+- **`?view=dashboard` is load-bearing.** The bare `/api/reminders` predates
+  this project and serves G.A.B.'s own HUD, where `enabled` is the stored flag
+  (it draws an OFF tag from it). Here `enabled` has to mean "still
+  outstanding", because G.A.B.'s scheduler disables a dated reminder within
+  twenty seconds of its deadline — long before you have done the thing. Without
+  the parameter, attention rule 1 could essentially never fire.
+- **`acknowledged` is a ticked-off daily task.** G.A.B. has no acknowledge
+  action, but a dated reminder lands on its daily task list when its day
+  arrives, and "Gab, mark the lab report as done" ticks it. Same signal drives
+  `done` on an assignment.
+- **`private` is set by voice or from G.A.B.'s HUD** ("private reminder: …",
+  or the HIDE button on a row in EDIT mode). It is the flag described under
+  Privacy above. It rides along onto a task too, since the reminder import
+  copies the text — otherwise the words would come back on the monitor as an
+  ordinary DAILY row.
+
+`course` may be absent on an assignment: G.A.B. stores a name and a due date,
+and does not guess a course out of the text. The UI drops the column for rows
+without one rather than rendering an empty gutter.
+
+## Still open
+
+- **Nothing is blocking.** Both questions that used to sit here — G.A.B.'s real
+  port, and whether it would serve tasks and objectives — are answered above.
+- The shapes for reminders, tasks and objectives are still marked `UNPINNED` in
+  `internal/model`: only `/api/assignments` was ever pinned in
+  `docs/dashboard-ui.md`. They are this side's proposal that G.A.B. matched, so
+  a 404 from any of the three still degrades that one block to hidden rather
+  than failing the panel — which is what keeps this running against an older
+  G.A.B.

@@ -97,11 +97,36 @@ func run() error {
 		}
 	}()
 
-	log.Printf("dashboard v%s listening on http://%s", version, srv.Addr)
-	fmt.Fprintf(os.Stderr, "dashboard: G.A.B. at %s · refresh every %s\n", cfg.GABBaseURL, cfg.RefreshInterval)
+	log.Printf("dashboard v%s — open %s (bound to %s)",
+		version, browsableURL(cfg.Host, cfg.Port), srv.Addr)
+	if cfg.Stub {
+		// Printing "G.A.B. at ..." here was actively misleading: in stub mode
+		// that address is never contacted, and the panel showing the mockup's
+		// fixture data looks exactly like a real fetch that went wrong.
+		fmt.Fprintf(os.Stderr, "dashboard: fixture data — G.A.B. at %s is NOT being read. "+
+			"Drop DASHBOARD_STUB=1 for real data.\n", cfg.GABBaseURL)
+	} else {
+		fmt.Fprintf(os.Stderr, "dashboard: G.A.B. at %s · refresh every %s\n",
+			cfg.GABBaseURL, cfg.RefreshInterval)
+	}
 
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// browsableURL turns the bind address into one you can actually open.
+//
+// HOST is 0.0.0.0 on purpose (see config.HOST — reachability is Tailscale's
+// job), but that is a wildcard meaning "every interface", not a destination.
+// Pasted into a browser it goes nowhere; Chrome blocks 0.0.0.0 outright. The
+// startup line is the one place that address gets read by a human, so it
+// prints the loopback form and reports the real bind separately.
+func browsableURL(host string, port int) string {
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
