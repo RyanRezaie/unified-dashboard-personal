@@ -1,18 +1,89 @@
-# Deployment shape matches the rest of the homelab: a container on Proxmox,
-# exposed over Tailscale with `tailscale serve`. There is no auth here on
-# purpose — reachability is a Tailscale ACL concern (see CLAUDE.md non-goals).
+# The whole stack, in dependency order: SearXNG, Ollama and ntfy, then G.A.B.
+# on top of those, then the dashboard on top of G.A.B.
 #
-# THIS FILE STARTS THE DASHBOARD ONLY. G.A.B. is a separate project with its
-# own repo, and it is not containerized: it needs the microphone, the speakers
-# and Ollama, so it runs on the host as a systemd USER service (see
-# gab.service.example over there). `docker compose up` therefore gives you a
-# panel with the G.A.B. lane down until G.A.B. is started separately.
+#   docker compose up -d
+#
+# ONE THING FIRST. G.A.B. is a git submodule, and a fresh clone leaves it
+# empty — the build fails with a confusing "failed to read dockerfile" if it
+# is. Run this once:
+#
+#   git submodule update --init --recursive
+#
+# Deployment shape matches the rest of the homelab: containers on Proxmox,
+# exposed over Tailscale with `tailscale serve`. There is no auth anywhere
+# here on purpose — reachability is a Tailscale ACL concern (see CLAUDE.md's
+# non-goals).
 #
 # Secrets come from a gitignored .env next to this file:
 #   PROXMOX_TOKEN_ID=dashboard@pve!readonly
 #   PROXMOX_TOKEN_SECRET=...
+#   SEARXNG_SECRET=...            # any long random string
+#
+# ---------------------------------------------------------------------------
+# ALREADY RUNNING SOME OF THIS? Ollama, SearXNG, Open-WebUI and ntfy are
+# containers you already run in the homelab, and two copies of any of them will
+# fight over a published port — so stop the old ones as you move each in here.
+# To keep using the existing ones instead, start only what is new:
+#
+#   docker compose up -d dashboard gab
+#
+# ...and point G.A.B. at them, since the defaults below name compose services
+# that would no longer exist:
+#
+#   GAB_OLLAMA_URL: "http://host.docker.internal:11434"
+#   GAB_SEARXNG_URL: "http://host.docker.internal:8080"
+#   GAB_NTFY_SERVER: "http://host.docker.internal:8880"
+# ---------------------------------------------------------------------------
 
 services:
+  # ============================================================
+  # G.A.B. — the assistant's HTTP half
+  #
+  # API and HUD only: a container has no microphone, so wake word, STT and
+  # TTS are off in here (see gab-assistant/docker-entrypoint.py). The voice
+  # assistant proper still runs on a host as a systemd user service; this is
+  # what gives the dashboard something to read.
+  # ============================================================
+  gab:
+    build: ./gab-assistant
+    container_name: gab
+    restart: unless-stopped
+    ports:
+      # The HUD, and the four read-only endpoints the dashboard polls.
+      - "8882:8882"
+    volumes:
+      # gab_data.json lives here — the task list and every reminder. A fresh
+      # volume starts EMPTY rather than seeded with the example file: an empty
+      # panel that is true beats a populated one that is invented.
+      #
+      # To run against the real data instead, bind-mount it:
+      #   - /path/to/gab_data.json:/data/gab_data.json
+      # Only do that if the host's G.A.B. is stopped. Two servers writing one
+      # gab_data.json will lose whichever write lands second.
+      - gab-data:/data
+    environment:
+      TZ: America/Chicago
+      # Every one of these is "http://localhost:PORT" in gab_server.py, which
+      # is right for a host install and wrong in a container, where localhost
+      # is the container itself. The entrypoint reads these; the constants in
+      # gab_server.py are untouched.
+      GAB_OLLAMA_URL: "http://ollama:11434"
+      GAB_SEARXNG_URL: "http://searxng:8080"
+      GAB_NTFY_SERVER: "http://ntfy"
+    extra_hosts:
+      # So the alternatives in the header above resolve without further edits.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      # Ordering only, not a health gate. G.A.B. starts fine without any of
+      # them up and degrades one feature at a time — which is the behaviour
+      # worth keeping, since Ollama in particular can take a while.
+      - ollama
+      - searxng
+      - ntfy
+
+  # ============================================================
+  # THE DASHBOARD — this repo
+  # ============================================================
   dashboard:
     build: .
     container_name: dashboard
@@ -23,32 +94,26 @@ services:
     volumes:
       - dashboard-data:/data
     extra_hosts:
-      # G.A.B. runs on the HOST, not as a container on this network (see the
-      # note at the top). From inside here 127.0.0.1 is this container, so the
-      # host needs a name to be reachable at all; host-gateway is Docker's
-      # built-in for exactly that, on Linux as well as Docker Desktop.
+      # Only needed if GAB_URL is repointed at a G.A.B. running on the host
+      # rather than the service above — 127.0.0.1 in here is this container.
       - "host.docker.internal:host-gateway"
     environment:
       TZ: America/Chicago
 
       # --- upstreams ---
-      # G.A.B.'s read-only endpoints, on the same always-on server — but on
-      # the host side of the container boundary, hence host.docker.internal
-      # rather than a service name. This used to say "http://gab:8882", which
-      # nothing on this network resolves: no `gab` service is defined here and
-      # none can be, so the lane read UNREACHABLE no matter what G.A.B. was
-      # doing. If G.A.B. ever moves to its own box, put its Tailscale name
-      # here instead.
-      GAB_URL: "http://host.docker.internal:8882"
+      GAB_URL: "http://gab:8882"
       # The GPU agent runs on the main PC (RTX 5070 Ti), which is where the
-      # LLM lives. This dashboard runs on the always-on server, so this is a
+      # LLM lives. This stack runs on the always-on server, so this is a
       # Tailscale address across two machines and the one upstream expected
       # to be offline whenever the main PC is.
       GPU_AGENT_URL: "http://workstation:8883"
       PROXMOX_URL: "https://pve:8006"
       PROXMOX_NODE: "pve"
-      PROXMOX_TOKEN_ID: "${PROXMOX_TOKEN_ID}"
-      PROXMOX_TOKEN_SECRET: "${PROXMOX_TOKEN_SECRET}"
+      # The :- defaults keep `docker compose up` from warning about an unset
+      # variable on a box with no .env. Unset is a legitimate state: the
+      # Proxmox lane reports itself failed and the rest of the panel lives.
+      PROXMOX_TOKEN_ID: "${PROXMOX_TOKEN_ID:-}"
+      PROXMOX_TOKEN_SECRET: "${PROXMOX_TOKEN_SECRET:-}"
 
       # --- attention thresholds (all confirmed) ---
       # Defaults in internal/config already match; set here so they are visible
@@ -57,6 +122,118 @@ services:
       ATTENTION_CONTAINERS: "ollama,searxng,open-webui,ntfy,gab"
       ATTENTION_GPU_TEMP_C: "80"
       ATTENTION_DISK_PCT: "85"
+    depends_on:
+      - gab
+
+  # ============================================================
+  # WHAT G.A.B. TALKS OUT TO
+  # ============================================================
+
+  # The LLM. STARTS WITH NO MODELS — the volume is empty on first run, and
+  # `Gab:v2` is hand-built (qwen2.5:7b-instruct with the persona baked in) and
+  # explicitly not reproducible by a script, so nothing here pulls or builds
+  # it. G.A.B. answers questions only once the model exists:
+  #
+  #   docker compose exec ollama ollama list          # what this instance has
+  #   docker compose exec ollama ollama pull qwen2.5:7b-instruct
+  #   # then create Gab:v2 from the Modelfile — NEVER rebuild an existing tag
+  #
+  # Simpler, if the real Ollama is already running with Gab:v2 in it: skip
+  # this service and point GAB_OLLAMA_URL at that one (see the header).
+  #
+  # NO GPU HERE BY DEFAULT. Passing one through needs the NVIDIA container
+  # toolkit installed, and a `deploy.resources` block referencing a GPU that
+  # is absent stops the container from starting at all — a broken stack in
+  # exchange for a service that is optional to begin with. On the main PC,
+  # uncomment:
+  #
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+  ollama:
+    image: docker.io/ollama/ollama
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+
+  # The chat front end for the same Ollama. Nothing in the dashboard or in
+  # G.A.B. talks to it — it is here because it is part of this stack on the
+  # same box, and because it is in ATTENTION_CONTAINERS, so the panel reports
+  # when it is down.
+  #
+  # MOVING AN EXISTING ONE IN? Its chat history lives in a volume, and the
+  # named volume below starts empty — a fresh install, not a migration. The
+  # old data is not gone, it is in the old volume; point at it instead of
+  # open-webui-data to keep the history:
+  #
+  #   docker volume ls                     # find the existing one
+  #   volumes:
+  #     - <that-volume-name>:/app/backend/data
+  #
+  # Either way, stop the old container first or the two fight over port 3000.
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      # 3000 on the host; the app itself serves 8080 inside, which is why this
+      # pair looks like it collides with SearXNG below and does not.
+      - "3000:8080"
+    volumes:
+      - open-webui-data:/app/backend/data
+    environment:
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      # To let Open-WebUI search through the SearXNG below as well, add:
+      #   ENABLE_RAG_WEB_SEARCH: "true"
+      #   RAG_WEB_SEARCH_ENGINE: "searxng"
+      #   SEARXNG_QUERY_URL: "http://searxng:8080/search?q=<query>"
+      # Left off because it changes how answers are produced, which is a
+      # decision rather than a default.
+    depends_on:
+      - ollama
+
+  # Search. The JSON API is off by default in current SearXNG and G.A.B. needs
+  # it — that is what deploy/searxng/settings.yml is for. Without it every
+  # search returns 403 while the browser UI keeps working, which is a
+  # genuinely confusing pair of symptoms.
+  searxng:
+    image: docker.io/searxng/searxng
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./deploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      # Signs this instance's own request tokens. Set it in .env; the image's
+      # entrypoint substitutes it into settings.yml at startup.
+      SEARXNG_SECRET: "${SEARXNG_SECRET:-change-me-in-dot-env}"
+      SEARXNG_BASE_URL: "http://localhost:8080/"
+
+  # Phone push. G.A.B. POSTs a UTF-8 body to {NTFY_SERVER}/{NTFY_TOPIC} — no
+  # SDK, no API key. Subscribe the phone to the `gab-reminders` topic on this
+  # server and reminders arrive.
+  ntfy:
+    image: docker.io/binwiederhier/ntfy
+    container_name: ntfy
+    restart: unless-stopped
+    command: ["serve", "--cache-file", "/var/cache/ntfy/cache.db"]
+    ports:
+      # 8880 on the host, since 80 in the container is what ntfy serves on.
+      - "8880:80"
+    volumes:
+      - ntfy-cache:/var/cache/ntfy
 
 volumes:
   dashboard-data:
+  gab-data:
+  ollama-models:
+  open-webui-data:
+  ntfy-cache:

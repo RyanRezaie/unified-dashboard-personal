@@ -37,26 +37,64 @@ go test ./...          # attention rule + pipeline store
 docker compose up -d   # deployment shape (see docker-compose.yml)
 ```
 
-**Compose starts the dashboard and nothing else.** G.A.B. is a separate
-project and is deliberately not containerized — it needs the microphone, the
-speakers and Ollama — so it runs on the host as a systemd *user* service. Start
-it from its own checkout (`python3 gab_server.py`, or
-`systemctl --user start gab.service`) and confirm it answers before blaming
-the panel:
+### The whole stack
+
+`docker compose up` brings up everything the panel needs, in dependency order:
+
+| Service | Port | What it is |
+|---|---|---|
+| `dashboard` | 8881 | this repo |
+| `gab` | 8882 | G.A.B.'s API + HUD, built from the submodule |
+| `ollama` | 11434 | the LLM G.A.B. asks |
+| `open-webui` | 3000 | chat front end for that same Ollama |
+| `searxng` | 8080 | search, with the JSON API enabled |
+| `ntfy` | 8880 | phone push for reminders |
+
+```sh
+git submodule update --init --recursive   # ONCE — gab/ is empty otherwise
+cp .env.example .env                      # optional; fill in what you have
+docker compose up -d
+```
+
+Then **http://localhost:8881** for the panel and **http://localhost:8882** for
+G.A.B.'s HUD, which is where you add the tasks and reminders the panel shows.
+A fresh `gab-data` volume starts empty, so the panel comes up linked and
+blank rather than seeded with fixture data.
+
+Three things about that stack are worth knowing before they surprise you:
+
+- **The `gab` container is API and HUD only.** No wake word, no STT, no TTS —
+  a container has no microphone. The voice assistant proper still runs on a
+  host as a systemd user service; this image exists so the dashboard has
+  something to read. See `gab-assistant/docker-entrypoint.py`.
+- **Ollama starts with no models.** `Gab:v2` is hand-built and deliberately
+  not reproducible by a script, so nothing here pulls or creates it. Until it
+  exists, G.A.B. serves data fine and answers questions badly.
+- **You may already run Ollama, SearXNG, Open-WebUI and ntfy.** Two copies
+  fight over a published port, so stop the old container as you move each one
+  in here. `docker compose up -d dashboard gab` starts only what is new
+  instead — then point `GAB_OLLAMA_URL` and friends at the existing ones, as
+  documented at the top of `docker-compose.yml`.
+- **Moving Open-WebUI in is not a migration.** Its chat history lives in a
+  volume, and `open-webui-data` starts empty. The old history is not gone —
+  it is in the old volume — but keeping it means naming that volume in the
+  service instead; there is a comment on the service showing how.
+
+If the assignments block reads **G.A.B. UNREACHABLE**, check that lane before
+blaming the panel:
 
 ```sh
 curl -s localhost:8882/api/assignments | python3 -m json.tool
 ```
 
-Until it does, the panel shows **G.A.B. UNREACHABLE** in the assignments block
-and hides DAILY, WEEKLY OBJECTIVES and REMINDERS — that is one dead lane
-degrading on its own, working as intended, not the dashboard being broken.
+Empty output means nothing is listening — G.A.B. is down, and the panel
+hiding DAILY, WEEKLY OBJECTIVES and REMINDERS is one dead lane degrading on
+its own, working as intended.
 
-One consequence of G.A.B. living on the host: inside the container `127.0.0.1`
-is the *container*, so `GAB_URL` is `http://host.docker.internal:8882` and the
-service declares `extra_hosts: host-gateway`. Running the binary directly
-instead (`go run ./cmd/dashboard`) has no such boundary and the
-`http://127.0.0.1:8882` default is right.
+Running the binary directly (`go run ./cmd/dashboard`) has no container
+boundary, so the `http://127.0.0.1:8882` default is right there; inside a
+container `127.0.0.1` is the container itself, which is why compose uses
+service names and declares `host.docker.internal` for anything on the host.
 
 ## Configuration
 
