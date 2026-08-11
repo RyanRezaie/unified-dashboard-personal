@@ -46,6 +46,12 @@ Two machines:
 So the GPU agent is the one upstream that crosses machines, and the only one expected to
 be legitimately offline day to day. It degrades the GPU lane alone, never the panel.
 
+### Attention thresholds — DECIDED
+GPU ≥ 80 °C, disk ≥ 85%, and the watched containers are `ollama`, `searxng`,
+`open-webui`, `ntfy`, `gab` — expected to grow, which is why it is an env var and not a
+code change. The dashboard's own container is deliberately not watched: if it is down
+there is no panel to report it on.
+
 ### Ports — DECIDED
 8080 is SearXNG and 8880 is ntfy. This stack lives in **8881-8889**:
 `8881` dashboard · `8882` G.A.B. · `8883` GPU agent.
@@ -83,10 +89,6 @@ The UI design is settled. `docs/dashboard-ui-mockup.html` is the visual referenc
 ### Open questions to resolve before/while building
 - How G.A.B. stores assignments behind `/api/assignments` — a new first-class type in
   `gab_data.json`, or derived from existing dated reminders? The UI is indifferent.
-- Real values for the **watched-container list**. GPU temp (80 °C) and disk (85%) are
-  confirmed; the container list is the last placeholder in `internal/config/config.go`.
-  The server logs a warning at startup while it is empty, and attention rule 2 cannot
-  fire until it is set.
 - **Reminders are specified on this side** — `GET /api/reminders`, shape in
   `README.md`, including a `private` flag. Privacy is handled by surface, not by
   hiding data: the monitor is an always-on panel readable by anyone in the room, so a

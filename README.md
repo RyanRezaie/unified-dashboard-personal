@@ -37,9 +37,9 @@ No secret has a default.
 | `PROXMOX_TOKEN_ID` / `PROXMOX_TOKEN_SECRET` | — | API token; **env only** |
 | `PROXMOX_INSECURE` | `true` | Self-signed homelab cert |
 | `PIPELINE_PATH` | `./data/pipeline.json` | The only writable state |
-| `ATTENTION_CONTAINERS` | *(empty)* | **Unconfirmed** — see below |
-| `ATTENTION_GPU_TEMP_C` | `80` | Confirmed |
-| `ATTENTION_DISK_PCT` | `85` | Confirmed |
+| `ATTENTION_CONTAINERS` | `ollama,searxng,open-webui,ntfy,gab` | Watched services; grow as needed |
+| `ATTENTION_GPU_TEMP_C` | `80` | Fires at or above |
+| `ATTENTION_DISK_PCT` | `85` | Fires at or above |
 | `DRIFT_PX`, `DRIFT_PERIOD_MIN`, `DIM_START_HOUR`, `DIM_END_HOUR`, `DIM_OPACITY` | `6`, `17`, `23`, `7`, `0.55` | Burn-in mitigation |
 | `DASHBOARD_STUB` | `false` | Fixture data for UI work |
 
@@ -125,12 +125,9 @@ path only. No request bodies, no reminder text, no assignment titles.
 
 Carried from `docs/dashboard-ui.md`, plus one found while building:
 
-1. **The watched-container list.** GPU temp (80 °C) and disk (85%) are
-   confirmed. This is the last placeholder: the server warns at startup while
-   `ATTENTION_CONTAINERS` is empty, and rule 2 can never fire until it is set.
-2. **G.A.B.'s port.** 8882 is this project's reservation, not a port G.A.B. is
+1. **G.A.B.'s port.** 8882 is this project's reservation, not a port G.A.B. is
    known to be listening on.
-3. **G.A.B. endpoints beyond assignments** — `/api/tasks` and
+2. **G.A.B. endpoints beyond assignments** — `/api/tasks` and
    `/api/objectives` are still proposed shapes; a 404 from either hides that
    block rather than failing. See the reminders contract below, which is now
    settled on this side.

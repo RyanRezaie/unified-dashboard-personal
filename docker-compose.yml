@@ -32,15 +32,13 @@ services:
       PROXMOX_TOKEN_ID: "${PROXMOX_TOKEN_ID}"
       PROXMOX_TOKEN_SECRET: "${PROXMOX_TOKEN_SECRET}"
 
-      # --- attention thresholds ---
-      # GPU and disk are Ryan's confirmed values (defaults in internal/config
-      # already match; set here only to keep them visible at deploy time).
+      # --- attention thresholds (all confirmed) ---
+      # Defaults in internal/config already match; set here so they are visible
+      # at deploy time. Add to the container list as the homelab grows — it is
+      # an env var precisely so that is not a rebuild.
+      ATTENTION_CONTAINERS: "ollama,searxng,open-webui,ntfy,gab"
       ATTENTION_GPU_TEMP_C: "80"
       ATTENTION_DISK_PCT: "85"
-      # STILL UNCONFIRMED: which containers are load-bearing. Until this is
-      # set, attention rule 2 can never fire and the server says so at
-      # startup. Uncomment and edit once the real list is known.
-      # ATTENTION_CONTAINERS: "ollama,searxng,ntfy,open-webui,qdrant"
 
 volumes:
   dashboard-data:

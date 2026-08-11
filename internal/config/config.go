@@ -60,26 +60,34 @@ const (
 )
 
 // ============================================================
-// ATTENTION THRESHOLDS
+// ATTENTION THRESHOLDS — all confirmed with Ryan, 2026-08-11.
 //
-// The GPU and disk limits are Ryan's real values, confirmed 2026-08-11.
-// Note the comparison is ">=", per docs/dashboard-ui.md's "at or above" —
-// so a card reporting exactly 80 °C does fire.
+// The comparison is ">=", per docs/dashboard-ui.md's "at or above", so a card
+// reporting exactly 80 °C does fire.
 //
-// The watched-container list is STILL UNCONFIRMED. It is the last piece of
-// the attention rule running on a placeholder, and while it is empty rule 2
-// can never fire, so the dashboard warns about it by name at startup.
+// The watched list is the services whose being down actually changes Ryan's
+// day. It is expected to grow as he adds things — that is why it is one
+// comma-separated env var and not a code change.
+//
+// Deliberately NOT watched: the dashboard's own container. If it is down there
+// is no panel to report it on, so watching itself buys nothing.
 // ============================================================
 
 var (
-	AttentionContainers = []string{} // UNCONFIRMED — empty: rule 2 never fires
-	AttentionGPUTempC   = 80.0       // confirmed
-	AttentionDiskPct    = 85.0       // confirmed
+	AttentionContainers = []string{
+		"ollama",     // the LLM G.A.B. talks to
+		"searxng",    // search
+		"open-webui", // chat front end
+		"ntfy",       // G.A.B.'s notification path — silent failure is the bad one
+		"gab",        // the assistant this dashboard reads from
+	}
+	AttentionGPUTempC = 80.0
+	AttentionDiskPct  = 85.0
 )
 
-// ThresholdsUnconfirmed reports whether the attention rule is still running on
-// placeholders, so main can say so out loud rather than pretending.
-func (c Config) ThresholdsUnconfirmed() bool {
+// NoWatchedContainers reports that attention rule 2 cannot fire, so main can
+// say so out loud instead of the rule being quietly dead.
+func (c Config) NoWatchedContainers() bool {
 	return len(c.AttentionContainers) == 0
 }
 

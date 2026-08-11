@@ -42,10 +42,9 @@ func run() error {
 	// STARTUP WARNINGS — say what is unconfigured rather than
 	// failing silently or pretending a placeholder was a decision.
 	// ============================================================
-	if cfg.ThresholdsUnconfirmed() {
-		log.Printf("dashboard: WARNING attention thresholds are PLACEHOLDERS " +
-			"(see internal/config/config.go): no watched containers set, so " +
-			"attention rule 2 can never fire. Set ATTENTION_CONTAINERS.")
+	if cfg.NoWatchedContainers() {
+		log.Printf("dashboard: WARNING ATTENTION_CONTAINERS is empty, so " +
+			"attention rule 2 (a watched container is down) can never fire.")
 	}
 	if cfg.Stub {
 		log.Printf("dashboard: STUB MODE — serving fixture data, no real sources")
