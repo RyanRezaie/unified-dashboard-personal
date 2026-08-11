@@ -1,0 +1,6 @@
+[submodule "gab-assistant"]
+	path = gab-assistant
+	url = https://github.com/RyanRezaie/gab-assistant
+[submodule "notes-rag"]
+	path = notes-rag
+	url = https://github.com/RyanRezaie/notes-rag
