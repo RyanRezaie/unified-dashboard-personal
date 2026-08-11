@@ -75,11 +75,22 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		Drift       config.DriftConfig `json:"burn_in"`
 		Stub        bool               `json:"stub"`
 		Stages      []model.Stage      `json:"stages"`
+		// Thresholds are sent so the UI can paint a meter amber at the same
+		// point the attention rule fires. The rule itself stays server-side —
+		// this is only which bar turns colour.
+		Thresholds struct {
+			GPUTempC float64 `json:"gpu_temp_c"`
+			DiskPct  float64 `json:"disk_pct"`
+		} `json:"thresholds"`
 	}{
 		PollSeconds: UIPollSeconds,
 		Drift:       s.cfg.Drift,
 		Stub:        s.cfg.Stub,
 		Stages:      model.Stages,
+		Thresholds: struct {
+			GPUTempC float64 `json:"gpu_temp_c"`
+			DiskPct  float64 `json:"disk_pct"`
+		}{s.cfg.AttentionGPUTempC, s.cfg.AttentionDiskPct},
 	})
 }
 
