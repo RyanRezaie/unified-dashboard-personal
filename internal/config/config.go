@@ -27,9 +27,10 @@ const (
 	PORT = 8881
 
 	// --- upstreams ---
-	// G.A.B.'s read-only assignments endpoint. Local-only; never written to.
-	// CONFIRM: 8882 is this project's reservation for G.A.B., not a port
-	// G.A.B. is known to be listening on yet.
+	// G.A.B.'s read-only endpoints. Local-only; never written to.
+	// CONFIRMED 2026-08-11: G.A.B. served 8420 for its whole history and was
+	// moved to 8882 at Ryan's request, so the reservation above is the real
+	// port on both sides now.
 	GABBaseURL = "http://127.0.0.1:8882"
 	// The workstation agent exposing nvidia-smi. The dashboard does NOT run
 	// on the workstation, so this is always a remote (Tailscale) address.

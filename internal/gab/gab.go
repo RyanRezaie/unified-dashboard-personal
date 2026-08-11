@@ -30,9 +30,16 @@ import (
 
 const (
 	pathAssignments = "/api/assignments" // DECIDED
-	pathReminders   = "/api/reminders"   // PROPOSED — optional
-	pathTasks       = "/api/tasks"       // PROPOSED — optional
-	pathObjectives  = "/api/objectives"  // PROPOSED — optional
+	// The bare /api/reminders already existed on G.A.B., serving its own
+	// HUD, and the two disagree about one field: there, `enabled` is the
+	// stored value (it draws an OFF tag from it), while the attention rule
+	// here needs "still outstanding" — a dated reminder is disabled by
+	// G.A.B.'s scheduler seconds after it fires, long before Ryan has done
+	// the thing. `?view=dashboard` selects this side's reading. See the
+	// dashboard section of gab_server.py.
+	pathReminders  = "/api/reminders?view=dashboard" // PROPOSED — optional
+	pathTasks      = "/api/tasks"                    // PROPOSED — optional
+	pathObjectives = "/api/objectives"               // PROPOSED — optional
 )
 
 type Client struct {

@@ -122,6 +122,13 @@ type Task struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
 	Done bool   `json:"done"`
+
+	// Private carries the same meaning it does on Reminder, and exists for a
+	// specific hole: G.A.B. copies a dated reminder onto the daily task list
+	// when its day arrives, text and all. Without the flag riding along, a
+	// private reminder's words would reappear on the monitor as an ordinary
+	// task — around the privacy rule rather than through it.
+	Private bool `json:"private"`
 }
 
 // Objective is a weekly objective with subtasks. UNPINNED SHAPE — see Reminder.

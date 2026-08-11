@@ -141,6 +141,8 @@ body{
 
 /* A redacted reminder reads as deliberately withheld, not as its own content. */
 .rtext.private{color:var(--td);font-style:italic;letter-spacing:2px;}
+/* Same treatment for a task imported from a private reminder. */
+.row .what.private{color:var(--td);font-style:italic;letter-spacing:2px;}
 
 /* meters */
 .meter{border-bottom:1px solid rgba(45,232,247,0.08);}
@@ -675,9 +677,13 @@ function assignmentRow(a, now, opts){
   </div>`;
 }
 
-function taskRow(t){
+// surface is "monitor" or "phone", exactly as in reminderRow — a task
+// imported from a private reminder carries the flag with it, and the words
+// are withheld in the same place for the same reason.
+function taskRow(t, surface){
+  const text = (t.private && surface === "monitor") ? REDACTED_TEXT : t.text;
   return `<div class="row${t.done ? " done" : ""}">
-    <span class="node"></span><span class="what">${esc(t.text)}</span>
+    <span class="node"></span><span class="what${t.private ? " private" : ""}">${esc(text)}</span>
   </div>`;
 }
 
@@ -708,7 +714,8 @@ function objectiveBlock(o, withSubs){
   const frac = o.total > 0 ? (o.done / o.total) * 100 : 0;
   const subs = withSubs && o.subs && o.subs.length
     ? `<ul class="subs">${o.subs.map((s) =>
-        `<li class="sub${s.done ? " done" : ""}"><span class="sb">◦</span>${esc(s.text)}</li>`).join("")}</ul>`
+        `<li class="sub${s.done ? " done" : ""}"><span class="sb">◦</span>${
+          esc(s.private ? REDACTED_TEXT : s.text)}</li>`).join("")}</ul>`
     : "";
   return `<div class="wk">
     <div class="wkh"><span class="wkn"></span><span class="wkt">${esc(o.title)}</span>
@@ -789,7 +796,8 @@ function renderMonitor(now){
   const tasks = state.tasks || [];
   $("m-daily-blk").style.display = state.have && state.have.tasks ? "" : "none";
   $("m-daily-tail").textContent  = tasks.filter((t) => t.done).length + " / " + tasks.length + " DONE";
-  $("m-daily").innerHTML = tasks.length ? tasks.map(taskRow).join("") : emptyRow("NO TASKS TODAY");
+  $("m-daily").innerHTML = tasks.length
+    ? tasks.map((t) => taskRow(t, "monitor")).join("") : emptyRow("NO TASKS TODAY");
 
   // --- lane 2 ---
   const objectives = state.objectives || [];
@@ -968,7 +976,7 @@ function phoneTasks(now){
   if (have.tasks) {
     html += `<div style="margin-top:16px;"><div class="sl">DAILY <span class="tail">${
       tasks.filter((t) => t.done).length} / ${tasks.length}</span></div>`
-      + (tasks.length ? tasks.map(taskRow).join("") : emptyRow("NONE")) + `</div>`;
+      + (tasks.length ? tasks.map((t) => taskRow(t, "phone")).join("") : emptyRow("NONE")) + `</div>`;
   }
   if (have.objectives) {
     html += `<div style="margin-top:16px;"><div class="sl pur">WEEKLY</div>`
