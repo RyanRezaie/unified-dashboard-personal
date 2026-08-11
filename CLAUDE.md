@@ -89,6 +89,8 @@ The UI design is settled. `docs/dashboard-ui-mockup.html` is the visual referenc
 ### Open questions to resolve before/while building
 - How G.A.B. stores assignments behind `/api/assignments` — a new first-class type in
   `gab_data.json`, or derived from existing dated reminders? The UI is indifferent.
+  **Partly answered:** G.A.B. today stores only a name and a due date, so `course` and
+  `done` may simply be absent; the dashboard handles that already.
 - **Reminders are specified on this side** — `GET /api/reminders`, shape in
   `README.md`, including a `private` flag. Privacy is handled by surface, not by
   hiding data: the monitor is an always-on panel readable by anyone in the room, so a
@@ -101,6 +103,92 @@ The UI design is settled. `docs/dashboard-ui-mockup.html` is the visual referenc
   `/api/reminders`, `/api/tasks` and `/api/objectives` as **proposed** shapes and treats a
   404 as "not implemented yet" — the block hides instead of failing. Shapes are in
   `internal/model`, marked `UNPINNED`. Rule 1 can't fire until reminders exist.
+
+## NEXT SESSION — write G.A.B.'s endpoints (not started)
+
+Ryan approved this and it is the next piece of work. **Nothing below has been written
+yet.** The dashboard side is finished and merged-ready; this is the G.A.B. half of the
+contract that makes attention rule 1 able to fire at all.
+
+### Branching
+- The dashboard work lives on `claude/claude-md-recent-commits-axn2v9` — finished and
+  pushed, meant to be merged on its own.
+- **Do this work on a NEW branch**, not that one. It touches a different repo.
+- The endpoint code goes in the **`gab-assistant` submodule**, in `gab_server.py`. It is
+  a separate git repo with its own history and remote — commit there, not in the parent.
+- Afterwards the parent repo needs a follow-up commit recording the new submodule
+  pointer (`git add gab-assistant && git commit -m "bump gab-assistant submodule"`), also
+  on a new branch here.
+
+### Getting at the submodule
+In a Claude Code web session the submodules are **not cloned** — `git submodule update
+--init` fails because only `unified-dashboard-personal` is in the session's GitHub scope.
+Attach it first with the `add_repo` tool (`owner: RyanRezaie`, `repo: gab-assistant`,
+`access: push`), clone where it tells you, then `register_repo_root` so its own
+`CLAUDE.md` loads. Do not skip that last step — G.A.B. has its own conventions file and
+Ryan hand-reviews against it.
+
+### What to build
+Two **read-only** endpoints on `gab_server.py`, local-only, on **port 8882**. They must
+never write. G.A.B. keeps owning the data; the dashboard owns the view.
+
+**`GET /api/assignments`** — shape pinned in `docs/dashboard-ui.md`:
+```json
+{"generated_at":"2026-08-11T21:47:03-05:00",
+ "assignments":[{"id":"a1","course":"PHYS 2425","title":"Lab report","due":"2026-08-12T09:00:00","done":false}]}
+```
+G.A.B. currently stores only a **name and a due date**, so `course` and `done` may be
+omitted — the dashboard drops the course column for rows without one and defaults `done`
+to false. Do **not** invent a course-parsing scheme to fill the field; if assignments are
+just dated reminders today, derive them from those and leave `course` out.
+
+**`GET /api/reminders`** — this is what attention rule 1 runs on:
+```json
+{"reminders":[{"id":"r1","text":"take out the trash","due":"2026-08-11T20:00:00",
+  "enabled":true,"acknowledged":false,"repeat":"ONCE","private":false}]}
+```
+
+Both accept naive local timestamps (no offset) — the dashboard parses them in the
+server's local zone, so G.A.B. does not need to emit offsets.
+
+### The `private` flag — the part that matters most
+Ryan cares greatly about privacy, and the real exposure is the always-on monitor, which
+anyone in the room can read. `private: true` means the dashboard shows the reminder's
+row, time and OVERDUE tag but **not its words** on the monitor; the phone still shows
+them. The dashboard already implements both halves of this (see `README.md` → Privacy).
+
+G.A.B.'s job is only to **set the flag honestly**. Decide with Ryan how a reminder gets
+marked private — a voice phrase ("private reminder: …"), a stored field, or a keyword
+list. **Do not guess this**; ask. Defaulting to `false` is safe; defaulting to `true`
+would silently blank the panel.
+
+### Conventions to follow inside `gab_server.py`
+- `save_data()`'s atomic write with `.bak` backup for any state — but these endpoints
+  should not be writing at all.
+- Section-banner comments (`# ====...`) dividing major concerns.
+- Config constants (HOST, PORT, paths) at the top of the file, not scattered.
+- No hardcoded API keys — env vars or a gitignored local config.
+- Don't duplicate reminder logic that already exists; read the existing store.
+
+### How to verify
+```sh
+curl -s localhost:8882/api/assignments | python3 -m json.tool
+curl -s localhost:8882/api/reminders   | python3 -m json.tool
+# Then point the real dashboard at it — no stub:
+GAB_URL=http://localhost:8882 go run ./cmd/dashboard   # → http://localhost:8881
+```
+Success looks like: the ASSIGNMENTS and REMINDERS blocks populate from real data, the
+status strip reads `G.A.B. LINKED`, and an overdue reminder turns the core ring amber
+and raises a NEEDS YOU row. A private one must show as `private reminder` on the monitor
+and in full on the phone (narrow the window below 1100px).
+
+### Still unanswered — ask, don't assume
+1. **G.A.B.'s actual port.** 8882 is this project's reservation, not a port G.A.B. is
+   known to listen on. Confirm before hardcoding.
+2. **How a reminder gets marked private** (above).
+3. **`/api/tasks` and `/api/objectives`** — still only proposed. The dashboard treats a
+   404 as "not implemented" and hides that block, so they are genuinely optional. Build
+   them only if Ryan wants the DAILY and WEEKLY OBJECTIVES blocks populated.
 
 ## Layout
 ```
@@ -128,9 +216,10 @@ He treats AI as a tutor/precision tool, not a code generator. This applies the s
 whether working in the parent dashboard code or inside a submodule.
 
 ## Cross-cutting integration points
-- **Dashboard ↔ G.A.B.**: dashboard reads assignment/reminder state from G.A.B. — see
-  `dashboard`'s own notes above for whether that's a direct file read or an API endpoint
-  on G.A.B.'s side (not yet decided as of writing).
+- **Dashboard ↔ G.A.B.**: DECIDED — read-only HTTP, never a direct read of
+  `gab_data.json`. `GET /api/assignments` and `GET /api/reminders` on `gab_server.py`.
+  The dashboard's client (`internal/gab`) is GET-only by construction. See the NEXT
+  SESSION section above — those endpoints do not exist yet.
 - **Dashboard ↔ notes-rag**: not yet integrated; the dashboard's current scope is
   assignments/homelab health/application pipeline, not notes search. If that changes,
   update this section.
