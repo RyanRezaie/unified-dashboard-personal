@@ -162,3 +162,23 @@ func contains(haystack, needle string) bool {
 	}
 	return false
 }
+
+func TestPrivateReminderTextIsRedactedServerSide(t *testing.T) {
+	now := time.Now()
+	secret := "pick up prescription"
+	g := gab.Snapshot{Reminders: []model.Reminder{
+		{Text: secret, Due: at(now, -30*time.Minute), Enabled: true, Private: true},
+	}}
+
+	got := testStore().attention(now, g, homelab.Snapshot{})
+	if !got.Active {
+		t.Fatal("a private reminder must still raise attention when overdue")
+	}
+	// The NEEDS YOU panel is monitor-only, so these words must never be sent.
+	if contains(got.Reasons[0].Text, secret) {
+		t.Errorf("private reminder text leaked into the attention reason: %q", got.Reasons[0].Text)
+	}
+	if !contains(got.Reasons[0].Detail, "AGO") {
+		t.Errorf("the overdue duration should survive redaction, got %q", got.Reasons[0].Detail)
+	}
+}

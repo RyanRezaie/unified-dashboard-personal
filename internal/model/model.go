@@ -68,6 +68,13 @@ func (lt LocalTime) MarshalJSON() ([]byte, error) {
 // Assignment matches the response shape pinned in docs/dashboard-ui.md.
 // Course is its own field because the monitor renders it as a fixed-width
 // column; it must not be baked into Title.
+//
+// CURRENT REALITY: G.A.B. today stores only a name and a due date — there is
+// no course and no done flag behind /api/assignments yet. Both stay in the
+// shape because the pinned contract has them and they cost nothing when
+// absent: Course empty means the UI drops the column for that row rather than
+// rendering a blank one, and Done defaults false. Nothing here requires
+// G.A.B. to grow those fields before the dashboard is useful.
 type Assignment struct {
 	ID     string    `json:"id"`
 	Course string    `json:"course"`
@@ -89,6 +96,19 @@ type Reminder struct {
 	Enabled bool      `json:"enabled"`
 	Ack     bool      `json:"acknowledged"`
 	Repeat  string    `json:"repeat"` // "", "ONCE", "DAILY", "WEEKDAYS", ...
+
+	// Private marks a reminder whose TEXT must not appear on the monitor.
+	//
+	// The monitor is an always-on panel in a room: anything on it is readable
+	// by whoever walks past, for as long as it is up. The phone is held. That
+	// asymmetry is the whole privacy surface of this dashboard, and it is why
+	// the flag lives on the reminder rather than in a global setting — "pick
+	// up prescription" and "take out the trash" do not want the same handling.
+	//
+	// A private reminder still occupies its row, still counts, and still
+	// raises attention when overdue. Only the words are withheld, and only on
+	// the monitor. See REDACTED_TEXT in internal/state.
+	Private bool `json:"private"`
 }
 
 // Overdue implements attention rule 1 verbatim: due time passed, still

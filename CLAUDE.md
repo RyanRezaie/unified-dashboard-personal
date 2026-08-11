@@ -87,6 +87,12 @@ The UI design is settled. `docs/dashboard-ui-mockup.html` is the visual referenc
   confirmed; the container list is the last placeholder in `internal/config/config.go`.
   The server logs a warning at startup while it is empty, and attention rule 2 cannot
   fire until it is set.
+- **Reminders are specified on this side** — `GET /api/reminders`, shape in
+  `README.md`, including a `private` flag. Privacy is handled by surface, not by
+  hiding data: the monitor is an always-on panel readable by anyone in the room, so a
+  private reminder keeps its row, time and overdue tag there but not its words. The
+  NEEDS YOU panel's copy is redacted server-side because that panel is monitor-only.
+  G.A.B. still has to grow the endpoint before attention rule 1 can fire.
 - **What else G.A.B. exposes besides assignments.** Only `/api/assignments` was ever
   pinned, but the monitor shows DAILY / WEEKLY OBJECTIVES / REMINDERS blocks and attention
   rule 1 is defined in terms of overdue *reminders*. `internal/gab` asks for

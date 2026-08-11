@@ -157,6 +157,14 @@ func (s *Store) Snapshot() Snapshot {
 	}
 }
 
+// REDACTED_TEXT stands in for a private reminder's words in anything the
+// monitor renders. Attention reasons are redacted SERVER-SIDE rather than in
+// the browser because the NEEDS YOU panel that prints them is a monitor-only
+// element — the phone routes reminder reasons to its rail badge and never
+// prints their text. So the words never need to leave the server for that
+// panel, and they do not.
+const REDACTED_TEXT = "a private reminder"
+
 // ============================================================
 // ATTENTION RULE — docs/dashboard-ui.md
 //
@@ -179,9 +187,15 @@ func (s *Store) attention(now time.Time, g gab.Snapshot, l homelab.Snapshot) mod
 		if !r.Overdue(now) {
 			continue
 		}
+		// The time is not redacted — "something is overdue, and by how long"
+		// is the actionable part, and it identifies nothing on its own.
+		text := fmt.Sprintf("%q overdue", r.Text)
+		if r.Private {
+			text = REDACTED_TEXT + " is overdue"
+		}
 		reasons = append(reasons, model.AttentionReason{
 			Source: model.SourceReminder,
-			Text:   fmt.Sprintf("%q overdue", r.Text),
+			Text:   text,
 			Detail: fmt.Sprintf("DUE %s · %s AGO", r.Due.Format("15:04"), shortDur(now.Sub(r.Due.Time))),
 		})
 	}
