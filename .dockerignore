@@ -1,0 +1,6 @@
+.git
+data
+docs
+*.md
+Dockerfile
+docker-compose.yml

@@ -1,0 +1,1137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>UNIFIED DASHBOARD</title>
+
+<!-- Fonts are the two woff2 faces from docs/dashboard-ui-mockup.html, kept in
+     their own file only so this one stays readable — 34KB of base64 in the
+     middle of the UI would make it unreviewable. Both are embedded in the
+     binary and served from this origin; the panel never reaches the internet. -->
+<link rel="stylesheet" href="fonts.css">
+
+<style>
+/* ============================================================
+   TOKENS — lifted from gab.html via docs/dashboard-ui.md.
+   There is no new visual language here. Semantic colour is
+   load-bearing: cyan = normal, amber = needs attention,
+   purple = grouped (weekly objectives, pipeline).
+   ============================================================ */
+:root{
+  --c:#2de8f7; --c-dim:#0f7c8c; --c-faint:rgba(45,232,247,0.18);
+  --a:#ff9d3d; --l:#b48cff; --l-faint:rgba(180,140,255,0.18);
+  --t:#d7f7ff; --td:#5c8a96;
+  --bg-0:#050b14; --bg-1:#0a1628;
+
+  /* Set by JS from /api/config — see BURN-IN below. */
+  --scale:1; --dx:0px; --dy:0px; --dim:1;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;background:var(--bg-0);}
+body{
+  font-family:'ShareTechMono',ui-monospace,Menlo,Consolas,monospace;
+  color:var(--t);line-height:1.4;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ============================================================
+   THE TWO SURFACES
+   Not one responsive layout — two surfaces with different jobs,
+   split by a width breakpoint, the same shape gab.html uses for
+   its TV case. Only one is ever in the DOM's flow.
+   ============================================================ */
+#phone{display:none;}
+@media (max-width:1099px){
+  #monitor-fit{display:none;}
+  #phone{display:flex;}
+}
+
+/* The monitor is drawn at exactly 1920x1080 and scaled to fit, so the
+   real panel gets scale 1 and every other screen degrades proportionally
+   instead of reflowing into a layout nobody designed. */
+#monitor-fit{position:fixed;inset:0;overflow:hidden;}
+#monitor{
+  width:1920px;height:1080px;transform-origin:top left;
+  transform:translate(var(--dx),var(--dy)) scale(var(--scale));
+  opacity:var(--dim);transition:opacity 2s linear;
+}
+#phone{
+  position:fixed;inset:0;opacity:var(--dim);transition:opacity 2s linear;
+  /* Drift is monitor-only: the phone is held and looked at, not burnt in. */
+}
+
+/* ============================================================
+   SHARED CHROME
+   ============================================================ */
+.mk{
+  position:relative;overflow:hidden;
+  background:
+    radial-gradient(ellipse at 20% 15%,rgba(45,232,247,0.06),transparent 40%),
+    radial-gradient(ellipse at 80% 85%,rgba(45,232,247,0.05),transparent 45%),
+    linear-gradient(180deg,var(--bg-0),var(--bg-1));
+  background-color:var(--bg-0);
+}
+.brk{position:absolute;width:60px;height:60px;border-color:var(--c-dim);opacity:0.7;}
+.brk.tl{top:22px;left:22px;border-top:2px solid;border-left:2px solid;}
+.brk.tr{top:22px;right:22px;border-top:2px solid;border-right:2px solid;}
+.brk.bl{bottom:22px;left:22px;border-bottom:2px solid;border-left:2px solid;}
+.brk.br{bottom:22px;right:22px;border-bottom:2px solid;border-right:2px solid;}
+.scan{position:absolute;inset:0;pointer-events:none;mix-blend-mode:overlay;
+  background:repeating-linear-gradient(180deg,rgba(255,255,255,0.015) 0px,transparent 1px,transparent 3px);}
+.vig{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 220px rgba(0,0,0,0.75);}
+.pad{position:relative;height:100%;display:flex;flex-direction:column;}
+
+/* section label: glowing square bullet + underline rule */
+.sl{font-family:'Orbitron',sans-serif;letter-spacing:8px;color:var(--c);
+  border-bottom:1px solid var(--c-faint);display:flex;align-items:center;gap:14px;}
+.sl::before{content:'';width:9px;height:9px;background:var(--c);
+  box-shadow:0 0 8px var(--c);flex-shrink:0;}
+.sl.amb{color:var(--a);border-bottom-color:rgba(255,157,61,0.18);}
+.sl.amb::before{background:var(--a);box-shadow:0 0 8px var(--a);}
+.sl.pur{color:var(--l);border-bottom-color:var(--l-faint);}
+.sl.pur::before{background:var(--l);box-shadow:0 0 8px var(--l);}
+.sl .tail{margin-left:auto;font-family:'ShareTechMono',monospace;
+  letter-spacing:2px;color:var(--td);}
+
+/* rows: 3px left accent stripe */
+.row{display:flex;align-items:center;gap:16px;
+  border-bottom:1px solid rgba(45,232,247,0.08);border-left:3px solid transparent;}
+.node{border-radius:50%;border:2px solid var(--c);flex-shrink:0;}
+.row.hot{border-left-color:var(--a);background:rgba(255,157,61,0.05);}
+.row.hot .node{border-color:var(--a);}
+.row.done .node{background:var(--c);}
+.course{font-family:'Orbitron',sans-serif;font-weight:600;letter-spacing:2px;
+  color:var(--td);flex-shrink:0;}
+.row.hot .course{color:var(--a);}
+.what{letter-spacing:1px;color:var(--t);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.row.hot .what{color:#ffd8ad;}
+.row.done .what{text-decoration:line-through;opacity:0.4;}
+.due{margin-left:auto;font-family:'Orbitron',sans-serif;font-weight:600;
+  letter-spacing:1px;color:var(--td);flex-shrink:0;}
+.row.hot .due{color:var(--a);text-shadow:0 0 8px rgba(255,157,61,0.5);}
+
+/* weekly objectives */
+.wk{margin-bottom:16px;}
+.wkh{display:flex;align-items:center;gap:12px;}
+.wkn{border:2px solid var(--l);flex-shrink:0;transform:rotate(45deg);}
+.wkt{color:var(--t);letter-spacing:1px;}
+.wkf{margin-left:auto;color:var(--td);letter-spacing:1px;}
+.wbar{background:rgba(180,140,255,0.12);overflow:hidden;}
+.wbar i{display:block;height:100%;background:var(--l);box-shadow:0 0 6px var(--l);}
+.subs{list-style:none;}
+.sub{display:flex;align-items:center;color:var(--td);letter-spacing:0.5px;}
+.sub .sb{color:var(--l);flex-shrink:0;}
+.sub.done{text-decoration:line-through;opacity:0.4;}
+
+/* reminders */
+.rem{display:flex;align-items:center;border-bottom:1px solid rgba(255,157,61,0.08);
+  border-left:3px solid transparent;}
+.rem.over{border-left-color:var(--a);background:rgba(255,157,61,0.07);}
+.rem.over .rtext{color:#ffd8ad;}
+.rem.over .rtime{text-shadow:0 0 8px rgba(255,157,61,0.5);}
+.rem .odue{margin-left:auto;font-family:'Orbitron',sans-serif;color:var(--a);
+  letter-spacing:2px;flex-shrink:0;}
+.rtime{font-family:'Orbitron',sans-serif;font-weight:600;color:var(--a);
+  letter-spacing:1px;flex-shrink:0;}
+.rtext{color:var(--t);letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.rrep{margin-left:auto;color:var(--td);letter-spacing:2px;flex-shrink:0;
+  border:1px solid rgba(255,157,61,0.2);}
+
+/* meters */
+.meter{border-bottom:1px solid rgba(45,232,247,0.08);}
+.meter .mh{display:flex;align-items:baseline;gap:10px;}
+.meter .mn{color:var(--t);letter-spacing:1px;}
+.meter .mv{margin-left:auto;font-family:'Orbitron',sans-serif;font-weight:600;
+  color:var(--c);letter-spacing:1px;}
+.meter.warn .mv{color:var(--a);}
+.bar{background:rgba(45,232,247,0.12);overflow:hidden;}
+.bar i{display:block;height:100%;background:var(--c);box-shadow:0 0 6px var(--c);}
+.meter.warn .bar i{background:var(--a);box-shadow:0 0 6px var(--a);}
+
+/* containers */
+.ctrs{display:flex;flex-wrap:wrap;}
+.ctr{display:flex;align-items:center;letter-spacing:1px;color:var(--td);}
+.ctr i{border-radius:50%;background:var(--c);box-shadow:0 0 7px var(--c);flex-shrink:0;}
+.ctr.down{color:var(--a);}
+.ctr.down i{background:var(--a);box-shadow:0 0 7px var(--a);}
+
+/* pipeline stages */
+.stage{border-bottom:1px solid rgba(180,140,255,0.1);border-left:3px solid transparent;}
+.stage.live{border-left-color:var(--l);background:rgba(180,140,255,0.05);}
+.sh{display:flex;align-items:baseline;gap:12px;}
+.sn{font-family:'Orbitron',sans-serif;font-weight:600;letter-spacing:3px;color:var(--l);}
+.sc{margin-left:auto;font-family:'Orbitron',sans-serif;font-weight:800;
+  color:var(--t);line-height:1;}
+.stage.dead .sn,.stage.dead .sc{color:var(--td);}
+.sd{letter-spacing:1px;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* rings */
+.ring{position:relative;}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg);display:block;}
+.rt{fill:none;stroke:rgba(45,232,247,0.12);stroke-width:3;}
+.rp{fill:none;stroke:var(--c);stroke-width:3;stroke-linecap:round;
+  filter:drop-shadow(0 0 6px var(--c));transition:stroke-dashoffset 1s linear;}
+.rp.amb{stroke:var(--a);filter:drop-shadow(0 0 6px var(--a));}
+.rc{position:absolute;inset:0;display:grid;grid-template-rows:1fr auto 1fr;justify-items:center;}
+.rc .above{align-self:end;}
+.rc .below{align-self:start;}
+.core svg{transform:none;}
+.cr-out{fill:none;stroke:var(--c-dim);stroke-width:1.2;opacity:0.6;}
+.cr-mid{fill:none;stroke:var(--c);stroke-width:1.6;stroke-dasharray:2 10;opacity:0.9;
+  animation:spin 40s linear infinite;transform-origin:center;}
+.cr-in{fill:none;stroke:var(--c);stroke-width:2;opacity:0.5;
+  animation:spinr 26s linear infinite;transform-origin:center;}
+.cr-mid.amb{stroke:var(--a);}
+.cr-in.amb{stroke:var(--a);}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@keyframes spinr{from{transform:rotate(360deg)}to{transform:rotate(0)}}
+@media (prefers-reduced-motion:reduce){.cr-mid,.cr-in{animation:none;}}
+
+/* the one filled panel — present ONLY when something needs a person */
+.callout-blk{border-left:3px solid var(--a);background:rgba(255,157,61,0.06);}
+
+/* status strip */
+.strip{margin-top:auto;display:flex;justify-content:space-between;gap:14px;
+  letter-spacing:2px;color:var(--td);border-top:1px solid rgba(45,232,247,0.1);}
+.strip .ok{color:var(--c);}
+.strip .bad{color:var(--a);}
+
+/* ============================================================
+   MONITOR — 1920x1080. Never touched, nothing below the fold,
+   no navigation, everything visible at once.
+   ============================================================ */
+.mon .pad{padding:44px 54px 34px;}
+.mon .sl{font-size:16px;padding-bottom:12px;margin-bottom:16px;}
+.mon .sl .tail{font-size:12px;}
+.mon .row{padding:13px 10px;}
+.mon .node{width:18px;height:18px;}
+.mon .course{font-size:13px;min-width:104px;}
+.mon .what{font-size:20px;}
+.mon .due{font-size:15px;}
+.mon .wkn{width:13px;height:13px;}
+.mon .wkt{font-size:18px;}
+.mon .wkf{font-size:13px;}
+.mon .wbar{height:4px;margin:9px 0 0 28px;}
+.mon .subs{margin:8px 0 0 28px;}
+.mon .sub{font-size:15px;gap:11px;padding:5px 0;}
+.mon .rem{padding:10px;gap:16px;}
+.mon .rtime{font-size:17px;min-width:70px;}
+.mon .rtext{font-size:17px;}
+.mon .rrep{font-size:11px;padding:3px 8px;}
+.mon .rem .odue{font-size:11px;}
+.mon .meter{padding:11px 10px;}
+.mon .meter .mn{font-size:17px;}
+.mon .meter .mv{font-size:17px;}
+.mon .bar{height:4px;margin-top:9px;}
+.mon .ctrs{gap:11px 20px;padding:14px 10px 0;}
+.mon .ctr{font-size:15px;gap:9px;}
+.mon .ctr i{width:8px;height:8px;}
+.mon .stage{padding:11px 10px;}
+.mon .sn{font-size:13px;}
+.mon .sc{font-size:21px;}
+.mon .sd{font-size:14px;margin-top:6px;}
+.mon .strip{font-size:14px;padding-top:16px;margin-top:26px;}
+.mon .callout-blk{padding:14px 16px;margin-top:20px;}
+.mon .callout-blk .cl{font-family:'Orbitron',sans-serif;font-size:11px;
+  letter-spacing:4px;color:var(--a);}
+.mon .callout-blk .cs{font-size:18px;letter-spacing:1px;color:#ffd8ad;margin-top:9px;}
+.mon .callout-blk .cd{font-family:'Orbitron',sans-serif;font-size:13px;
+  letter-spacing:2px;color:var(--td);margin-top:7px;}
+
+/* monitor header — the countdown lives here, not as a centred hero */
+.mhead{display:flex;align-items:center;gap:40px;padding-bottom:26px;
+  border-bottom:1px solid rgba(45,232,247,0.12);margin-bottom:26px;}
+.mdate{font-family:'Orbitron',sans-serif;font-size:44px;font-weight:800;
+  letter-spacing:2px;color:var(--t);line-height:1;}
+.mwd{font-size:15px;letter-spacing:7px;color:var(--td);margin-top:10px;}
+.mclock{font-family:'Orbitron',sans-serif;font-size:44px;font-weight:600;
+  letter-spacing:3px;color:var(--c);line-height:1;font-variant-numeric:tabular-nums;}
+.mnext{margin-left:auto;display:flex;align-items:center;gap:22px;}
+.mcount{font-family:'Orbitron',sans-serif;font-size:64px;font-weight:800;
+  color:var(--a);text-shadow:0 0 26px rgba(255,157,61,0.42);line-height:1;
+  font-variant-numeric:tabular-nums;}
+.mnl{font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:5px;
+  color:var(--td);margin-bottom:9px;}
+.mns{font-size:19px;letter-spacing:1px;color:#ffd8ad;margin-top:7px;}
+.mnd{font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:3px;
+  color:var(--a);margin-top:6px;}
+.core-txt{font-family:'Orbitron',sans-serif;font-size:19px;font-weight:800;
+  color:var(--c);text-shadow:0 0 14px rgba(45,232,247,0.5);}
+.core-txt.amb{color:var(--a);text-shadow:0 0 14px rgba(255,157,61,0.5);}
+
+.lanes{display:grid;grid-template-columns:1.25fr 1fr 1.05fr;gap:44px;flex:1;min-height:0;}
+.lane{min-width:0;display:flex;flex-direction:column;}
+.lane .blk + .blk{margin-top:26px;}
+
+/* ============================================================
+   PHONE — 64px left rail, four destinations, one concern per tab.
+   ============================================================ */
+.ph{display:flex;}
+.ph .rail{
+  width:64px;flex-shrink:0;position:relative;z-index:2;
+  border-right:1px solid rgba(45,232,247,0.12);
+  background:rgba(5,11,20,0.6);
+  display:flex;flex-direction:column;padding-top:max(44px,env(safe-area-inset-top));
+}
+.ph .ri{
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  padding:15px 0;border-left:3px solid transparent;
+  position:relative;cursor:pointer;-webkit-tap-highlight-color:transparent;
+}
+.ph .ri i{width:9px;height:9px;border-radius:50%;background:var(--td);opacity:0.55;}
+.ph .ri span{font-family:'Orbitron',sans-serif;font-size:8px;font-weight:600;
+  letter-spacing:1.5px;color:var(--td);}
+.ph .ri.on{border-left-color:var(--ac,var(--c));background:rgba(45,232,247,0.07);}
+.ph .ri.on i{background:var(--ac,var(--c));box-shadow:0 0 9px var(--ac,var(--c));opacity:1;}
+.ph .ri.on span{color:var(--ac,var(--c));}
+.ph .ri.on.a{background:rgba(255,157,61,0.07);}
+.ph .ri.on.p{background:rgba(180,140,255,0.07);}
+/* badge: a dead container is visible from the home screen without being on it */
+.ph .ri .dot{position:absolute;top:12px;right:12px;width:6px;height:6px;
+  border-radius:50%;background:var(--a);box-shadow:0 0 7px var(--a);display:none;}
+.ph .ri.badged .dot{display:block;}
+
+.ph .body{flex:1;min-width:0;display:flex;flex-direction:column;
+  padding:max(38px,env(safe-area-inset-top)) 16px 20px;overflow-y:auto;
+  scrollbar-width:none;}
+.ph .body::-webkit-scrollbar{display:none;}
+.ph .tbar{display:flex;align-items:baseline;gap:10px;padding-bottom:11px;
+  border-bottom:1px solid rgba(45,232,247,0.12);margin-bottom:14px;}
+.ph .tbar .tn{font-family:'Orbitron',sans-serif;font-size:12px;font-weight:600;
+  letter-spacing:4px;color:var(--c);}
+.ph .tbar .tn.a{color:var(--a);}
+.ph .tbar .tn.p{color:var(--l);}
+.ph .tbar .tm{margin-left:auto;font-size:10px;letter-spacing:2px;color:var(--td);}
+
+.ph .sl{font-size:10px;letter-spacing:5px;padding-bottom:8px;margin-bottom:10px;}
+.ph .sl::before{width:6px;height:6px;}
+.ph .sl .tail{font-size:8px;}
+.ph .row{gap:10px;padding:9px 4px;}
+.ph .node{width:12px;height:12px;}
+.ph .course{font-size:9px;letter-spacing:1px;min-width:66px;}
+.ph .what{font-size:13px;}
+.ph .due{font-size:11px;}
+.ph .rem{padding:8px 4px;gap:10px;}
+.ph .rtime{font-size:12px;min-width:44px;}
+.ph .rtext{font-size:12px;}
+.ph .rem .odue{font-size:8px;}
+.ph .rrep{font-size:8px;padding:2px 5px;}
+.ph .meter{padding:8px 4px;}
+.ph .meter .mn{font-size:12px;}
+.ph .meter .mv{font-size:12px;}
+.ph .bar{height:3px;margin-top:7px;}
+.ph .ctrs{gap:8px 12px;padding:9px 4px 0;}
+.ph .ctr{font-size:10px;gap:6px;}
+.ph .ctr i{width:6px;height:6px;}
+.ph .stage{padding:9px 4px;}
+.ph .sn{font-size:9px;letter-spacing:2px;}
+.ph .sc{font-size:15px;}
+.ph .sd{font-size:9.5px;margin-top:4px;}
+.ph .wkn{width:10px;height:10px;}
+.ph .wkt{font-size:13px;}
+.ph .wkf{font-size:10px;}
+.ph .wbar{height:3px;margin:7px 0 0 22px;}
+.ph .subs{margin:6px 0 0 22px;}
+.ph .sub{font-size:11px;gap:8px;padding:3px 0;}
+.ph .strip{font-size:8px;letter-spacing:1px;padding-top:9px;margin-top:auto;}
+.ph .callout-blk{padding:11px 12px;margin-bottom:14px;}
+.ph .callout-blk .cl{font-family:'Orbitron',sans-serif;font-size:8px;
+  letter-spacing:3px;color:var(--a);}
+.ph .callout-blk .cs{font-size:13px;letter-spacing:1px;color:#ffd8ad;margin-top:6px;}
+.ph .callout-blk .cd{font-size:9px;letter-spacing:2px;color:var(--td);margin-top:5px;}
+
+/* phone home hero */
+.ph .hero{display:flex;flex-direction:column;align-items:center;padding:8px 0 4px;}
+.ph .huge{font-family:'Orbitron',sans-serif;font-weight:800;font-size:52px;
+  line-height:1;color:var(--a);text-shadow:0 0 28px rgba(255,157,61,0.42);
+  font-variant-numeric:tabular-nums;}
+.ph .unit{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:5px;
+  color:var(--td);margin-top:9px;}
+.ph .subj{font-size:14px;letter-spacing:1px;color:var(--t);margin-top:15px;text-align:center;}
+.ph .metaline{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;
+  color:var(--a);margin-top:7px;}
+
+/* phone home summary cards */
+.ph .sum{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px;}
+.ph .sc2{border:1px solid var(--c-faint);border-left:3px solid var(--c);
+  background:rgba(45,232,247,0.04);padding:9px 10px;}
+.ph .sc2.warn{border-color:rgba(255,157,61,0.35);border-left-color:var(--a);
+  background:rgba(255,157,61,0.07);}
+.ph .sc2.pur{border-color:var(--l-faint);border-left-color:var(--l);
+  background:rgba(180,140,255,0.05);}
+.ph .sc2 .k{font-family:'Orbitron',sans-serif;font-size:7.5px;font-weight:600;
+  letter-spacing:2px;color:var(--td);margin-bottom:5px;}
+.ph .sc2.warn .k{color:var(--a);}
+.ph .sc2 .v{font-family:'Orbitron',sans-serif;font-size:20px;font-weight:800;
+  color:var(--t);line-height:1;}
+.ph .sc2.warn .v{color:var(--a);}
+.ph .sc2 .u{font-size:8.5px;letter-spacing:1px;color:var(--td);margin-top:4px;}
+
+/* pipeline — the ONLY interactive part of the dashboard */
+.jcard{border:1px solid var(--l-faint);background:rgba(180,140,255,0.05);
+  display:flex;align-items:baseline;gap:9px;}
+.jcard .jn{color:var(--t);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.jcard .jd{margin-left:auto;color:var(--td);flex-shrink:0;}
+.ph .jcard{padding:9px;margin-bottom:5px;font-size:11px;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.ph .jcard:active{background:rgba(180,140,255,0.14);}
+.ph .jcard .jd{font-size:9px;}
+.ph .jcard .jx{color:var(--td);font-size:12px;padding:0 2px 0 8px;flex-shrink:0;}
+
+.ph .addbtn{width:100%;margin-top:12px;padding:10px;background:transparent;
+  border:1px dashed var(--l-faint);color:var(--l);cursor:pointer;
+  font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;}
+.ph .addform{display:none;margin-top:12px;border:1px solid var(--l-faint);
+  background:rgba(180,140,255,0.05);padding:11px;}
+.ph .addform.open{display:block;}
+.ph .addform input,.ph .addform select{
+  width:100%;margin-bottom:7px;padding:7px 8px;background:rgba(5,11,20,0.7);
+  border:1px solid var(--l-faint);color:var(--t);font-size:12px;
+  font-family:'ShareTechMono',monospace;}
+.ph .addform .go{width:100%;padding:8px;background:rgba(180,140,255,0.16);
+  border:1px solid var(--l);color:var(--t);cursor:pointer;
+  font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;}
+
+/* empty / failed states — a dead source must LOOK dead, never blank */
+.empty{color:var(--td);letter-spacing:2px;opacity:0.75;}
+.mon .empty{font-size:15px;padding:13px 10px;}
+.ph .empty{font-size:11px;padding:9px 4px;}
+.empty.bad{color:var(--a);opacity:1;}
+</style>
+</head>
+
+<body>
+
+<!-- ===================== SURFACE 01 — MONITOR ===================== -->
+<div id="monitor-fit">
+  <div class="mk mon" id="monitor">
+    <div class="brk tl"></div><div class="brk tr"></div>
+    <div class="brk bl"></div><div class="brk br"></div>
+    <div class="scan"></div><div class="vig"></div>
+
+    <div class="pad">
+      <div class="mhead">
+        <div>
+          <div class="mdate" id="m-date">—</div>
+          <div class="mwd" id="m-weekday">—</div>
+        </div>
+        <div class="mclock" id="m-clock">--:--</div>
+
+        <div class="ring core" style="width:126px;height:126px;flex-shrink:0;margin-left:26px;">
+          <svg viewBox="0 0 200 200">
+            <circle class="cr-out" cx="100" cy="100" r="95"></circle>
+            <circle class="cr-out" cx="100" cy="100" r="88" stroke-dasharray="1 9"></circle>
+            <circle class="cr-mid" id="m-ring-mid" cx="100" cy="100" r="72"></circle>
+            <circle class="cr-in" id="m-ring-in" cx="100" cy="100" r="52"></circle>
+          </svg>
+          <div class="rc">
+            <div class="above"></div>
+            <div class="core-txt" id="m-core">OK</div>
+            <div class="below"></div>
+          </div>
+        </div>
+
+        <div class="mnext">
+          <div style="text-align:right;">
+            <div class="mnl">NEXT DUE</div>
+            <div class="mns" id="m-next-title">—</div>
+            <div class="mnd" id="m-next-when">—</div>
+          </div>
+          <div class="mcount" id="m-count">—</div>
+        </div>
+      </div>
+
+      <div class="lanes">
+        <div class="lane">
+          <div class="blk">
+            <div class="sl">ASSIGNMENTS <span class="tail" id="m-assign-tail"></span></div>
+            <div id="m-assignments"></div>
+          </div>
+          <div class="blk" id="m-daily-blk">
+            <div class="sl">DAILY <span class="tail" id="m-daily-tail"></span></div>
+            <div id="m-daily"></div>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="blk" id="m-weekly-blk">
+            <div class="sl pur">WEEKLY OBJECTIVES</div>
+            <div id="m-weekly"></div>
+          </div>
+          <div class="blk">
+            <div class="sl pur">PIPELINE <span class="tail" id="m-pipe-tail"></span></div>
+            <div id="m-pipeline"></div>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="blk">
+            <div class="sl amb" id="m-lab-label">HOMELAB <span class="tail" id="m-lab-tail"></span></div>
+            <div id="m-homelab"></div>
+          </div>
+          <div class="blk" id="m-rem-blk">
+            <div class="sl amb">REMINDERS <span class="tail">TODAY</span></div>
+            <div id="m-reminders"></div>
+          </div>
+          <!-- The one filled panel. Injected only when attention is active. -->
+          <div id="m-needs"></div>
+        </div>
+      </div>
+
+      <div class="strip">
+        <span>G.A.B. <span id="s-gab" class="ok">—</span></span>
+        <span>PROXMOX <span id="s-prox">—</span></span>
+        <span id="s-updated">UPDATED —</span>
+        <span id="s-version">DASHBOARD</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SURFACE 02 — PHONE ===================== -->
+<div class="mk ph" id="phone">
+  <div class="scan"></div><div class="vig"></div>
+
+  <div class="rail">
+    <div class="ri on" data-tab="home"><i></i><span>HOME</span><span class="dot"></span></div>
+    <div class="ri" data-tab="tasks"><i></i><span>TASKS</span><span class="dot"></span></div>
+    <div class="ri" data-tab="lab"><i></i><span>LAB</span><span class="dot"></span></div>
+    <div class="ri" data-tab="jobs"><i></i><span>JOBS</span><span class="dot"></span></div>
+  </div>
+
+  <div class="body">
+    <div class="tbar">
+      <span class="tn" id="p-tabname">STATUS</span>
+      <span class="tm" id="p-tabmeta">—</span>
+    </div>
+    <div id="p-content"></div>
+    <div class="strip" id="p-strip"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   CONFIG — everything tunable, at the top of the file.
+   Server-owned values (poll interval, burn-in) arrive from
+   /api/config so they are declared once, in internal/config.
+   ============================================================ */
+const STATE_URL   = "/api/state";
+const CONFIG_URL  = "/api/config";
+const TICK_MS     = 1000;     // display tick: clock + countdown, zero server cost
+const HOT_HOURS   = 24;       // an assignment inside this window renders "hot"
+const RING_HORIZON_H = 168;   // phone ring is a 7-day horizon
+
+let POLL_MS = 20000;          // replaced by /api/config (pinned at 20s in the spec)
+let BURN = {drift_px:0, drift_period_min:17, dim_start_hour:23, dim_end_hour:7, dim_opacity:1};
+// Until /api/config answers, no meter paints amber — better than guessing a
+// threshold the server may not agree with.
+let THRESH = {gpu_temp_c: Infinity, disk_pct: Infinity};
+
+let state = null;             // last good /api/state
+let stale = false;            // last poll failed
+let tab = "home";
+const WD  = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+const MON = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+const $  = (id) => document.getElementById(id);
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// Every value below is rendered through innerHTML, and course/title/company
+// text comes from G.A.B., Proxmox and Ryan's own input. Escape all of it.
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+    {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
+  ));
+}
+
+function dayDiff(d, now){
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((a - b) / 864e5);
+}
+
+// Compact due marker for a row: hours inside a day, weekday inside a week,
+// then a date. Same vocabulary the mockup uses.
+function dueShort(d, now){
+  if (!d) return "";
+  const ms = d - now;
+  if (ms < 0) return "LATE";
+  const h = ms / 36e5;
+  if (h < 24) return Math.max(1, Math.round(h)) + "h";
+  const days = dayDiff(d, now);
+  if (days <= 6) return WD[d.getDay()];
+  return MON[d.getMonth()] + " " + d.getDate();
+}
+
+// Long form for the header: "TOMORROW 09:00".
+function dueLabel(d, now){
+  if (!d) return "—";
+  const time = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  const days = dayDiff(d, now);
+  if (days < 0)  return "OVERDUE " + time;
+  if (days === 0) return "TODAY " + time;
+  if (days === 1) return "TOMORROW " + time;
+  if (days <= 6)  return WD[d.getDay()] + " " + time;
+  return MON[d.getMonth()] + " " + d.getDate() + " " + time;
+}
+
+// The countdown: hours while that is the useful unit, days after.
+function countdown(d, now){
+  if (!d) return {value:"—", unit:"", compact:"—"};
+  const ms = d - now;
+  if (ms < 0) return {value:"0", unit:"LATE", compact:"LATE"};
+  const h = ms / 36e5;
+  if (h < 48) {
+    const v = Math.max(1, Math.round(h));
+    return {value:String(v), unit:"HOURS", compact:v + "h"};
+  }
+  const v = Math.ceil(h / 24);
+  return {value:String(v), unit:"DAYS", compact:v + "d"};
+}
+
+// Freshness of the last poll — coarse on purpose, it is footnote text.
+function agoShort(ms){
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  return Math.round(s / 3600) + "h";
+}
+
+// How overdue a reminder is. Deliberately NOT agoShort: this must match
+// shortDur() in internal/state, or the row tag and the NEEDS YOU panel would
+// describe the same reminder with two different numbers.
+function overdueShort(ms){
+  const mins = Math.round(ms / 60000);
+  return mins >= 60
+    ? Math.floor(mins / 60) + "h" + pad2(mins % 60) + "m"
+    : mins + "m";
+}
+
+const parseTime = (s) => (s ? new Date(s) : null);
+const pct = (n) => Math.max(0, Math.min(100, n)).toFixed(0);
+
+/* ============================================================
+   DERIVED VIEWS — computed once per render, used by both surfaces
+   ============================================================ */
+function openAssignments(now){
+  return (state.assignments || [])
+    .filter((a) => !a.done)
+    .map((a) => ({...a, dueAt: parseTime(a.due)}));
+}
+
+function nextDue(now){
+  const upcoming = openAssignments(now).filter((a) => a.dueAt);
+  return upcoming.length ? upcoming[0] : null; // server already sorted soonest-first
+}
+
+// Which phone tab a given attention reason belongs to, so the rail can badge
+// the right destination without string-matching the reason text.
+function tabForSource(source){
+  return source === "reminder" ? "tasks" : "lab";
+}
+
+/* ============================================================
+   SHARED FRAGMENTS
+   ============================================================ */
+function assignmentRow(a, now, opts){
+  const hot = a.dueAt && (a.dueAt - now) / 36e5 < HOT_HOURS;
+  const cls = "row" + (a.done ? " done" : "") + (hot && !a.done ? " hot" : "");
+  const title = opts && opts.short ? a.title.split(" — ")[0] : a.title;
+  return `<div class="${cls}">
+    <span class="node"></span>
+    <span class="course">${esc(a.course)}</span>
+    <span class="what">${esc(title)}</span>
+    <span class="due">${esc(dueShort(a.dueAt, now))}</span>
+  </div>`;
+}
+
+function taskRow(t){
+  return `<div class="row${t.done ? " done" : ""}">
+    <span class="node"></span><span class="what">${esc(t.text)}</span>
+  </div>`;
+}
+
+function reminderRow(r, now){
+  const due = parseTime(r.due);
+  const over = r.enabled && !r.acknowledged && due && due < now;
+  const tail = over
+    ? `<span class="odue">OVERDUE ${esc(overdueShort(now - due))}</span>`
+    : `<span class="rrep">${esc(r.repeat || "ONCE")}</span>`;
+  return `<div class="rem${over ? " over" : ""}">
+    <span class="rtime">${due ? pad2(due.getHours()) + ":" + pad2(due.getMinutes()) : "--:--"}</span>
+    <span class="rtext">${esc(r.text)}</span>${tail}
+  </div>`;
+}
+
+function meter(name, value, fillPct, warn){
+  return `<div class="meter${warn ? " warn" : ""}">
+    <div class="mh"><span class="mn">${esc(name)}</span><span class="mv">${esc(value)}</span></div>
+    <div class="bar"><i style="width:${pct(fillPct)}%"></i></div>
+  </div>`;
+}
+
+function objectiveBlock(o, withSubs){
+  const frac = o.total > 0 ? (o.done / o.total) * 100 : 0;
+  const subs = withSubs && o.subs && o.subs.length
+    ? `<ul class="subs">${o.subs.map((s) =>
+        `<li class="sub${s.done ? " done" : ""}"><span class="sb">◦</span>${esc(s.text)}</li>`).join("")}</ul>`
+    : "";
+  return `<div class="wk">
+    <div class="wkh"><span class="wkn"></span><span class="wkt">${esc(o.title)}</span>
+      <span class="wkf">${o.done} / ${o.total}</span></div>
+    <div class="wbar"><i style="width:${pct(frac)}%"></i></div>${subs}
+  </div>`;
+}
+
+function emptyRow(text, bad){
+  return `<div class="empty${bad ? " bad" : ""}">${esc(text)}</div>`;
+}
+
+// GPU + storage meters, shared by the monitor lane and the phone LAB tab.
+// A meter turns amber at exactly the threshold the server's attention rule
+// uses, so the bar and the NEEDS YOU panel can never disagree.
+function gpuMeters(lab){
+  if (!lab.gpu_status.ok) return emptyRow("GPU AGENT UNREACHABLE", true);
+  if (!lab.gpus || !lab.gpus.length) return emptyRow("NO GPU REPORTED");
+  return lab.gpus.map((g) => {
+    const vramPct = g.vram_total_mb ? (g.vram_used_mb / g.vram_total_mb) * 100 : 0;
+    // The temp bar is scaled against 100 °C, which is where consumer NVIDIA
+    // cards throttle — so a full bar means "at the hardware limit".
+    return meter("GPU temp", g.temp_c.toFixed(0) + " °C", g.temp_c, g.temp_c >= THRESH.gpu_temp_c)
+         + meter("VRAM", (g.vram_used_mb / 1024).toFixed(1) + " / " +
+                 (g.vram_total_mb / 1024).toFixed(0) + " GB", vramPct, false)
+         + (g.fan_pct ? meter("Fan", g.fan_pct.toFixed(0) + " %", g.fan_pct, false) : "");
+  }).join("");
+}
+
+function diskMeters(lab){
+  if (!lab.proxmox_status.ok) return "";
+  return (lab.disks || []).map((d) =>
+    meter(d.name, d.used_pct.toFixed(0) + " %", d.used_pct, d.used_pct >= THRESH.disk_pct)
+  ).join("");
+}
+
+function containerList(lab, stacked){
+  if (!lab.proxmox_status.ok) return emptyRow("PROXMOX UNREACHABLE", true);
+  if (!lab.containers || !lab.containers.length) return emptyRow("NO CONTAINERS REPORTED");
+  const style = stacked ? ' style="flex-direction:column;gap:9px;align-items:flex-start"' : "";
+  return `<div class="ctrs"${style}>` + lab.containers.map((c) =>
+    `<span class="ctr${c.running ? "" : " down"}"><i></i>${esc(c.name)}${
+      c.running ? "" : " — " + esc(c.status)}</span>`
+  ).join("") + "</div>";
+}
+
+/* ============================================================
+   MONITOR RENDER
+   ============================================================ */
+function renderMonitor(now){
+  const attn = state.attention;
+
+  // --- header ---
+  $("m-date").textContent    = MON[now.getMonth()] + " " + now.getDate();
+  $("m-weekday").textContent = ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"][now.getDay()];
+  $("m-clock").textContent   = pad2(now.getHours()) + ":" + pad2(now.getMinutes());
+
+  const next = nextDue(now);
+  const cd   = countdown(next ? next.dueAt : null, now);
+  $("m-next-title").textContent = next ? next.course + " — " + next.title : "NOTHING DUE";
+  $("m-next-when").textContent  = next ? dueLabel(next.dueAt, now) : "";
+  $("m-count").textContent      = cd.compact;
+
+  // --- core ring: pulse amber and you look, stay cyan and you don't ---
+  $("m-ring-mid").classList.toggle("amb", attn.active);
+  $("m-ring-in").classList.toggle("amb", attn.active);
+  $("m-core").classList.toggle("amb", attn.active);
+  $("m-core").textContent = attn.active ? "ATTN" : "OK";
+
+  // --- lane 1 ---
+  const open = openAssignments(now);
+  $("m-assign-tail").textContent = open.length + " OPEN · FROM G.A.B.";
+  $("m-assignments").innerHTML = state.gab_status.ok
+    ? (open.length ? open.slice(0, 6).map((a) => assignmentRow(a, now)).join("")
+                   : emptyRow("NOTHING OPEN"))
+    : emptyRow("G.A.B. UNREACHABLE", true);
+
+  const tasks = state.tasks || [];
+  $("m-daily-blk").style.display = state.have && state.have.tasks ? "" : "none";
+  $("m-daily-tail").textContent  = tasks.filter((t) => t.done).length + " / " + tasks.length + " DONE";
+  $("m-daily").innerHTML = tasks.length ? tasks.map(taskRow).join("") : emptyRow("NO TASKS TODAY");
+
+  // --- lane 2 ---
+  const objectives = state.objectives || [];
+  $("m-weekly-blk").style.display = state.have && state.have.objectives ? "" : "none";
+  $("m-weekly").innerHTML = objectives.map((o) => objectiveBlock(o, true)).join("");
+
+  const pipe = state.pipeline || {};
+  const tracked = Object.values(pipe).reduce((n, items) => n + items.length, 0);
+  $("m-pipe-tail").textContent = tracked + " TRACKED";
+  $("m-pipeline").innerHTML = ["interview","applied","emailed","dead"].map((stage) => {
+    const items = pipe[stage] || [];
+    const names = items.slice(0, 3).map((i) => i.company).join(" · ");
+    const more  = items.length > 3 ? " · +" + (items.length - 3) : "";
+    const cls = "stage" + (stage === "interview" && items.length ? " live" : "")
+              + (stage === "dead" ? " dead" : "");
+    return `<div class="${cls}">
+      <div class="sh"><span class="sn">${stage.toUpperCase()}</span><span class="sc">${items.length}</span></div>
+      <div class="sd">${esc(names + more) || "—"}</div>
+    </div>`;
+  }).join("");
+
+  // --- lane 3 ---
+  const lab = state.homelab;
+  const down = (lab.containers || []).filter((c) => c.watched && !c.running);
+  $("m-lab-tail").textContent = down.length ? down.length + " DOWN" : "ALL UP";
+  $("m-lab-label").classList.toggle("amb", down.length > 0);
+  $("m-homelab").innerHTML = gpuMeters(lab) + diskMeters(lab) + containerList(lab, false);
+
+  const reminders = state.reminders || [];
+  $("m-rem-blk").style.display = state.have && state.have.reminders ? "" : "none";
+  $("m-reminders").innerHTML = reminders.length
+    ? reminders.map((r) => reminderRow(r, now)).join("")
+    : emptyRow("NONE TODAY");
+
+  // --- NEEDS YOU: exists only when something is waiting on a person ---
+  $("m-needs").innerHTML = attn.active ? needsPanel(attn, "blk callout-blk") : "";
+
+  // --- status strip ---
+  const gabOK = state.gab_status.ok;
+  $("s-gab").className   = gabOK ? "ok" : "bad";
+  $("s-gab").textContent = gabOK ? "LINKED" : "DOWN";
+
+  const up = (lab.containers || []).filter((c) => c.running).length;
+  const total = (lab.containers || []).length;
+  $("s-prox").innerHTML = lab.proxmox_status.ok
+    ? `<span class="ok">${up} UP</span>${total - up ? ` / <span class="bad">${total - up} DOWN</span>` : ""}`
+    : `<span class="bad">DOWN</span>`;
+
+  $("s-updated").textContent = "UPDATED " + agoShort(now - parseTime(state.generated_at)) + " AGO"
+    + (stale ? " · STALE" : "");
+  $("s-version").textContent = "DASHBOARD v0.1" + (window.__stub ? " · STUB" : "");
+}
+
+function needsPanel(attn, cls){
+  const rows = attn.reasons.map((r) =>
+    `<div class="cs">${esc(r.text)}</div><div class="cd">${esc(r.detail)}</div>`).join("");
+  return `<div class="${cls}">
+    <div class="cl">NEEDS YOU — ${attn.reasons.length}</div>${rows}
+  </div>`;
+}
+
+/* ============================================================
+   PHONE RENDER
+   ============================================================ */
+function renderPhone(now){
+  const attn = state.attention;
+
+  // Rail badges: a fault is visible from any tab without being shown on it.
+  const badged = new Set((attn.reasons || []).map((r) => tabForSource(r.source)));
+  document.querySelectorAll("#phone .ri").forEach((el) => {
+    const t = el.dataset.tab;
+    el.classList.toggle("on", t === tab);
+    el.classList.toggle("a", t === "lab");
+    el.classList.toggle("p", t === "jobs");
+    el.style.setProperty("--ac", t === "lab" ? "var(--a)" : t === "jobs" ? "var(--l)" : "var(--c)");
+    el.classList.toggle("badged", badged.has(t) && t !== tab);
+  });
+
+  const nameEl = $("p-tabname");
+  nameEl.className = "tn" + (tab === "lab" ? " a" : tab === "jobs" ? " p" : "");
+
+  const lab = state.homelab;
+  const down = (lab.containers || []).filter((c) => c.watched && !c.running);
+  const ago = agoShort(now - parseTime(state.generated_at));
+
+  if (tab === "home") {
+    nameEl.textContent = "STATUS";
+    $("p-tabmeta").textContent = MON[now.getMonth()] + " " + now.getDate() + " · " +
+      pad2(now.getHours()) + ":" + pad2(now.getMinutes());
+    $("p-content").innerHTML = phoneHome(now, attn);
+  } else if (tab === "tasks") {
+    nameEl.textContent = "TASKS";
+    $("p-tabmeta").textContent = "READ-ONLY";   // G.A.B. owns this data
+    $("p-content").innerHTML = phoneTasks(now);
+  } else if (tab === "lab") {
+    nameEl.textContent = "HOMELAB";
+    $("p-tabmeta").textContent = down.length ? down.length + " DOWN" : "ALL UP";
+    $("p-content").innerHTML = phoneLab(now, attn);
+  } else {
+    nameEl.textContent = "PIPELINE";
+    $("p-tabmeta").textContent = "TAP TO ADVANCE";  // the one tab with a verb
+    $("p-content").innerHTML = phoneJobs(now);
+  }
+
+  $("p-strip").innerHTML = tab === "jobs"
+    ? `<span>${Object.values(state.pipeline || {}).reduce((n, i) => n + i.length, 0)} TRACKED</span>
+       <span>${(state.pipeline && state.pipeline.dead || []).length} DEAD</span>`
+    : `<span>G.A.B. <span class="${state.gab_status.ok ? "ok" : "bad"}">${
+         state.gab_status.ok ? "LINKED" : "DOWN"}</span></span><span>${ago}${stale ? " · STALE" : ""}</span>`;
+}
+
+function phoneHome(now, attn){
+  const next = nextDue(now);
+  const cd = countdown(next ? next.dueAt : null, now);
+
+  // Ring fills as the deadline approaches, over a 7-day horizon.
+  const CIRC = 283;
+  const remaining = next && next.dueAt ? (next.dueAt - now) / 36e5 : RING_HORIZON_H;
+  const frac = Math.max(0, Math.min(1, 1 - remaining / RING_HORIZON_H));
+  const offset = CIRC * (1 - frac);
+
+  const open = openAssignments(now);
+  const week = open.filter((a) => a.dueAt && (a.dueAt - now) / 864e5 <= 7).length;
+  const tasks = state.tasks || [];
+  const lab = state.homelab;
+  const up = (lab.containers || []).filter((c) => c.running).length;
+  const total = (lab.containers || []).length;
+  const down = (lab.containers || []).filter((c) => c.watched && !c.running);
+  const interviews = (state.pipeline && state.pipeline.interview) || [];
+
+  return `
+  <div class="hero">
+    <div class="ring" style="width:168px;height:168px;">
+      <svg viewBox="0 0 100 100">
+        <circle class="rt" cx="50" cy="50" r="45"></circle>
+        <circle class="rp${attn.active ? " amb" : ""}" cx="50" cy="50" r="45"
+          stroke-dasharray="${CIRC}" stroke-dashoffset="${offset.toFixed(0)}"></circle>
+      </svg>
+      <div class="rc"><div class="above"></div>
+        <div style="text-align:center;">
+          <div class="huge">${esc(cd.value)}</div><div class="unit">${esc(cd.unit)}</div>
+        </div>
+        <div class="below"></div></div>
+    </div>
+    <div class="subj">${next ? esc(next.course + " — " + next.title) : "NOTHING DUE"}</div>
+    <div class="metaline">${next ? "DUE " + esc(dueLabel(next.dueAt, now)) : ""}</div>
+  </div>
+  <div class="sum">
+    <div class="sc2"><div class="k">DUE ≤ 7D</div><div class="v">${week}</div><div class="u">ASSIGNMENTS</div></div>
+    <div class="sc2${down.length ? " warn" : ""}"><div class="k">HOMELAB</div>
+      <div class="v">${up}/${total}</div>
+      <div class="u">${down.length ? esc(down.map((c) => c.name.toUpperCase()).join(" · ")) : "ALL UP"}</div></div>
+    <div class="sc2"><div class="k">TASKS TODAY</div>
+      <div class="v">${tasks.filter((t) => !t.done).length}</div>
+      <div class="u">${tasks.filter((t) => t.done).length} DONE</div></div>
+    <div class="sc2 pur"><div class="k">INTERVIEWS</div><div class="v">${interviews.length}</div>
+      <div class="u">${esc(interviews.slice(0, 2).map((i) => i.company).join(" · ")) || "—"}</div></div>
+  </div>`;
+}
+
+function phoneTasks(now){
+  if (!state.gab_status.ok) return emptyRow("G.A.B. UNREACHABLE", true);
+  const open = openAssignments(now);
+  const tasks = state.tasks || [];
+  const objectives = state.objectives || [];
+  const have = state.have || {};
+
+  let html = `<div class="sl">ASSIGNMENTS <span class="tail">${open.length}</span></div>`
+    + (open.length ? open.map((a) => assignmentRow(a, now, {short:true})).join("") : emptyRow("NOTHING OPEN"));
+
+  if (have.tasks) {
+    html += `<div style="margin-top:16px;"><div class="sl">DAILY <span class="tail">${
+      tasks.filter((t) => t.done).length} / ${tasks.length}</span></div>`
+      + (tasks.length ? tasks.map(taskRow).join("") : emptyRow("NONE")) + `</div>`;
+  }
+  if (have.objectives) {
+    html += `<div style="margin-top:16px;"><div class="sl pur">WEEKLY</div>`
+      + objectives.map((o) => objectiveBlock(o, false)).join("") + `</div>`;
+  }
+  if (have.reminders) {
+    html += `<div style="margin-top:16px;"><div class="sl amb">REMINDERS</div>`
+      + (state.reminders || []).map((r) => reminderRow(r, now)).join("") + `</div>`;
+  }
+  return html;
+}
+
+function phoneLab(now, attn){
+  const lab = state.homelab;
+  const labReasons = attn.reasons.filter((r) => tabForSource(r.source) === "lab");
+  const up = (lab.containers || []).filter((c) => c.running).length;
+  const total = (lab.containers || []).length;
+
+  return (labReasons.length ? needsPanel({reasons: labReasons}, "callout-blk") : "")
+    + `<div class="sl amb">GPU</div>` + gpuMeters(lab)
+    + `<div style="margin-top:16px;"><div class="sl amb">CONTAINERS <span class="tail">${up} / ${total}</span></div>`
+    + containerList(lab, true) + `</div>`
+    + `<div style="margin-top:16px;"><div class="sl amb">STORAGE</div>`
+    + (diskMeters(lab) || emptyRow("NO POOLS REPORTED")) + `</div>`;
+}
+
+function phoneJobs(now){
+  const pipe = state.pipeline || {};
+  const days = (iso) => Math.max(0, Math.round((now - new Date(iso)) / 864e5)) + "d";
+
+  const block = (stage) => {
+    const items = pipe[stage] || [];
+    return `<div style="margin-top:14px;">
+      <div class="sl pur">${stage.toUpperCase()} <span class="tail">${items.length}</span></div>
+      ${items.length ? items.map((i) => `
+        <div class="jcard" data-id="${esc(i.id)}" data-stage="${esc(i.stage)}">
+          <span class="jn">${esc(i.company)}${i.role ? " — " + esc(i.role) : ""}</span>
+          <span class="jd">${days(i.updated_at)}</span>
+          <span class="jx" data-kill="${esc(i.id)}">✕</span>
+        </div>`).join("") : emptyRow("NONE")}
+    </div>`;
+  };
+
+  return ["interview","applied","emailed","dead"].map(block).join("")
+    + `<button class="addbtn" id="p-add-toggle">+ TRACK AN APPLICATION</button>
+       <div class="addform" id="p-add-form">
+         <input id="p-add-company" placeholder="COMPANY" autocomplete="off">
+         <input id="p-add-role" placeholder="ROLE (OPTIONAL)" autocomplete="off">
+         <select id="p-add-stage">
+           <option value="emailed">EMAILED</option>
+           <option value="applied">APPLIED</option>
+           <option value="interview">INTERVIEW</option>
+         </select>
+         <button class="go" id="p-add-go">ADD</button>
+       </div>`;
+}
+
+/* ============================================================
+   PIPELINE WRITES — the only mutation in the whole dashboard
+   ============================================================ */
+const ADVANCE = {emailed:"applied", applied:"interview", interview:"interview", dead:"emailed"};
+
+async function pipelineWrite(method, path, body){
+  const res = await fetch("/api/pipeline" + path, {
+    method,
+    headers: body ? {"Content-Type":"application/json"} : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({error: res.statusText}));
+    alert("Pipeline: " + err.error);
+    return false;
+  }
+  await load();   // re-poll so the view matches the server, not an optimistic guess
+  return true;
+}
+
+document.getElementById("p-content").addEventListener("click", (ev) => {
+  if (tab !== "jobs") return;
+
+  const kill = ev.target.closest("[data-kill]");
+  if (kill) {
+    ev.stopPropagation();
+    const card = kill.closest(".jcard");
+    // ✕ retires an item to DEAD; a second ✕ on a dead item removes it for good.
+    if (card.dataset.stage === "dead") {
+      if (confirm("Delete this application permanently?")) {
+        pipelineWrite("DELETE", "/" + kill.dataset.kill);
+      }
+    } else {
+      pipelineWrite("PATCH", "/" + kill.dataset.kill, {stage:"dead"});
+    }
+    return;
+  }
+
+  const card = ev.target.closest(".jcard");
+  if (card) {
+    const next = ADVANCE[card.dataset.stage];
+    if (next !== card.dataset.stage) pipelineWrite("PATCH", "/" + card.dataset.id, {stage: next});
+    return;
+  }
+
+  if (ev.target.id === "p-add-toggle") {
+    document.getElementById("p-add-form").classList.toggle("open");
+    return;
+  }
+  if (ev.target.id === "p-add-go") {
+    const company = document.getElementById("p-add-company").value.trim();
+    if (!company) return;
+    pipelineWrite("POST", "", {
+      company,
+      role:  document.getElementById("p-add-role").value.trim(),
+      stage: document.getElementById("p-add-stage").value,
+      note:  "",
+    });
+  }
+});
+
+document.querySelectorAll("#phone .ri").forEach((el) => {
+  el.addEventListener("click", () => { tab = el.dataset.tab; render(); });
+});
+
+/* ============================================================
+   BURN-IN MITIGATION
+   The panel shows this UI ~99% of the time, so this is built in
+   rather than retrofitted. Both values come from internal/config.
+   ============================================================ */
+function burnIn(now){
+  // Slow layout drift — a full cycle every BURN.drift_period_min minutes,
+  // slow enough to be invisible and large enough to move static edges.
+  const t = (now.getTime() / 60000) / BURN.drift_period_min * 2 * Math.PI;
+  const driftX = Math.sin(t) * BURN.drift_px;
+  const driftY = Math.cos(t * 0.7) * BURN.drift_px;
+
+  // Fit 1920x1080 into the viewport, then centre it, then add the drift.
+  const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+  const root = document.documentElement.style;
+  root.setProperty("--scale", scale);
+  root.setProperty("--dx", ((window.innerWidth  - 1920 * scale) / 2 + driftX) + "px");
+  root.setProperty("--dy", ((window.innerHeight - 1080 * scale) / 2 + driftY) + "px");
+
+  // Scheduled dim. The window wraps midnight, hence the || rather than &&.
+  const h = now.getHours();
+  const s = BURN.dim_start_hour, e = BURN.dim_end_hour;
+  const dimming = s < e ? (h >= s && h < e) : (h >= s || h < e);
+  root.setProperty("--dim", dimming ? BURN.dim_opacity : 1);
+}
+
+/* ============================================================
+   LOOP — 20s data poll, 1s display tick. One is data, one is
+   display; they are deliberately not the same interval.
+   ============================================================ */
+async function load(){
+  try {
+    const res = await fetch(STATE_URL, {cache:"no-store"});
+    if (!res.ok) throw new Error(res.statusText);
+    state = await res.json();
+    stale = false;
+  } catch (err) {
+    // Keep the last good state on the glass and mark it stale. A blank panel
+    // tells you less than a stale one that admits it is stale.
+    stale = true;
+    console.warn("dashboard: poll failed:", err);
+  }
+  render();
+}
+
+function render(){
+  if (!state) return;
+  const now = new Date();
+  burnIn(now);
+  if (window.innerWidth >= 1100) renderMonitor(now);
+  else renderPhone(now);
+}
+
+async function boot(){
+  try {
+    const cfg = await (await fetch(CONFIG_URL, {cache:"no-store"})).json();
+    POLL_MS = cfg.poll_seconds * 1000;
+    BURN = cfg.burn_in;
+    THRESH = cfg.thresholds;
+    window.__stub = cfg.stub;
+  } catch (err) {
+    console.warn("dashboard: /api/config failed, using defaults:", err);
+  }
+
+  await load();
+  setInterval(() => { load(); }, POLL_MS);
+  setInterval(() => { if (state) render(); }, TICK_MS);
+  window.addEventListener("resize", () => render());
+
+  // A panel that has been asleep should not show a stale clock on wake.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+}
+
+boot();
+</script>
+</body>
+</html>

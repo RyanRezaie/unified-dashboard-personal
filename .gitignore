@@ -1,0 +1,9 @@
+# Local pipeline state — this is Ryan's data, not source.
+/data/
+
+# Build output
+/dashboard
+/bin/
+
+# Local secrets (Proxmox token). Never committed; see internal/config.
+.env

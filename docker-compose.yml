@@ -1,0 +1,42 @@
+# Deployment shape matches the rest of the homelab: a container on Proxmox,
+# exposed over Tailscale with `tailscale serve`. There is no auth here on
+# purpose — reachability is a Tailscale ACL concern (see CLAUDE.md non-goals).
+#
+# Secrets come from a gitignored .env next to this file:
+#   PROXMOX_TOKEN_ID=dashboard@pve!readonly
+#   PROXMOX_TOKEN_SECRET=...
+
+services:
+  dashboard:
+    build: .
+    container_name: dashboard
+    restart: unless-stopped
+    # Bound to the Tailscale interface in practice; published here for the LAN.
+    ports:
+      - "8088:8088"
+    volumes:
+      - dashboard-data:/data
+    environment:
+      TZ: America/Chicago
+
+      # --- upstreams ---
+      # G.A.B.'s read-only assignments endpoint.
+      GAB_URL: "http://gab:8080"
+      # The workstation agent wrapping nvidia-smi. The dashboard does not run
+      # on the workstation, so this is a Tailscale address.
+      GPU_AGENT_URL: "http://workstation:9100"
+      PROXMOX_URL: "https://pve:8006"
+      PROXMOX_NODE: "pve"
+      PROXMOX_TOKEN_ID: "${PROXMOX_TOKEN_ID}"
+      PROXMOX_TOKEN_SECRET: "${PROXMOX_TOKEN_SECRET}"
+
+      # --- attention thresholds ---
+      # UNCONFIRMED PLACEHOLDERS. The spec says not to ship these as if they
+      # were chosen; the server logs a warning while ATTENTION_CONTAINERS is
+      # empty. Fill in the load-bearing containers and real limits.
+      # ATTENTION_CONTAINERS: "ollama,searxng,ntfy,open-webui,qdrant"
+      # ATTENTION_GPU_TEMP_C: "80"
+      # ATTENTION_DISK_PCT: "90"
+
+volumes:
+  dashboard-data:
