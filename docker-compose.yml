@@ -2,6 +2,12 @@
 # exposed over Tailscale with `tailscale serve`. There is no auth here on
 # purpose — reachability is a Tailscale ACL concern (see CLAUDE.md non-goals).
 #
+# THIS FILE STARTS THE DASHBOARD ONLY. G.A.B. is a separate project with its
+# own repo, and it is not containerized: it needs the microphone, the speakers
+# and Ollama, so it runs on the host as a systemd USER service (see
+# gab.service.example over there). `docker compose up` therefore gives you a
+# panel with the G.A.B. lane down until G.A.B. is started separately.
+#
 # Secrets come from a gitignored .env next to this file:
 #   PROXMOX_TOKEN_ID=dashboard@pve!readonly
 #   PROXMOX_TOKEN_SECRET=...
@@ -16,12 +22,24 @@ services:
       - "8881:8881"
     volumes:
       - dashboard-data:/data
+    extra_hosts:
+      # G.A.B. runs on the HOST, not as a container on this network (see the
+      # note at the top). From inside here 127.0.0.1 is this container, so the
+      # host needs a name to be reachable at all; host-gateway is Docker's
+      # built-in for exactly that, on Linux as well as Docker Desktop.
+      - "host.docker.internal:host-gateway"
     environment:
       TZ: America/Chicago
 
       # --- upstreams ---
-      # G.A.B.'s read-only assignments endpoint. Same always-on server.
-      GAB_URL: "http://gab:8882"
+      # G.A.B.'s read-only endpoints, on the same always-on server — but on
+      # the host side of the container boundary, hence host.docker.internal
+      # rather than a service name. This used to say "http://gab:8882", which
+      # nothing on this network resolves: no `gab` service is defined here and
+      # none can be, so the lane read UNREACHABLE no matter what G.A.B. was
+      # doing. If G.A.B. ever moves to its own box, put its Tailscale name
+      # here instead.
+      GAB_URL: "http://host.docker.internal:8882"
       # The GPU agent runs on the main PC (RTX 5070 Ti), which is where the
       # LLM lives. This dashboard runs on the always-on server, so this is a
       # Tailscale address across two machines and the one upstream expected

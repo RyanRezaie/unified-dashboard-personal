@@ -37,6 +37,27 @@ go test ./...          # attention rule + pipeline store
 docker compose up -d   # deployment shape (see docker-compose.yml)
 ```
 
+**Compose starts the dashboard and nothing else.** G.A.B. is a separate
+project and is deliberately not containerized — it needs the microphone, the
+speakers and Ollama — so it runs on the host as a systemd *user* service. Start
+it from its own checkout (`python3 gab_server.py`, or
+`systemctl --user start gab.service`) and confirm it answers before blaming
+the panel:
+
+```sh
+curl -s localhost:8882/api/assignments | python3 -m json.tool
+```
+
+Until it does, the panel shows **G.A.B. UNREACHABLE** in the assignments block
+and hides DAILY, WEEKLY OBJECTIVES and REMINDERS — that is one dead lane
+degrading on its own, working as intended, not the dashboard being broken.
+
+One consequence of G.A.B. living on the host: inside the container `127.0.0.1`
+is the *container*, so `GAB_URL` is `http://host.docker.internal:8882` and the
+service declares `extra_hosts: host-gateway`. Running the binary directly
+instead (`go run ./cmd/dashboard`) has no such boundary and the
+`http://127.0.0.1:8882` default is right.
+
 ## Configuration
 
 Every value has a default in `internal/config/config.go` and an env override.
