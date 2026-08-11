@@ -1,0 +1,27 @@
+# SearXNG, configured for the one thing G.A.B. needs from it: JSON.
+#
+# The JSON API is DISABLED by default in current SearXNG — `format=json`
+# returns HTTP 403 until this file says otherwise, and it is invisible from
+# the browser UI, where search keeps working fine. G.A.B.'s search_web()
+# detects that specific 403 and logs the fix, which is this file.
+#
+# use_default_settings means everything not named here keeps SearXNG's own
+# defaults, so this stays a short diff against upstream rather than a fork of
+# their config that goes stale.
+use_default_settings: true
+
+server:
+  # Replaced at startup by the image's entrypoint from the SEARXNG_SECRET
+  # environment variable — see docker-compose.yml. It is a real secret: it
+  # signs this instance's own request tokens.
+  secret_key: "ultrasecretkey"
+  # The bot limiter exists to stop strangers scraping a public instance. This
+  # one is not public — it is reachable only from the compose network and the
+  # tailnet — and with it on, G.A.B.'s own API calls are what get rate
+  # limited, which reads as "search randomly stopped working".
+  limiter: false
+
+search:
+  formats:
+    - html
+    - json
