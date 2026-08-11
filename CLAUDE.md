@@ -5,6 +5,52 @@ The unified semester/homelab dashboard, with related projects included as git
 submodules. This file is for orientation across the whole tree — each submodule has its
 own `CLAUDE.md` with real detail; don't duplicate that here, link to it.
 
+## The dashboard app itself
+A single-pane status view for Ryan's semester + homelab, LAN/Tailscale only, no login,
+showing:
+- Assignments due (read-only from G.A.B.'s data store)
+- Homelab health (GPU temp/VRAM, container status)
+- Application pipeline status (manual kanban: emailed → applied → interview → dead)
+
+Design goal: answer "what's my situation right now" in under 5 seconds from any of Ryan's
+three screens (iPhone 15+/GrapheneOS Pixel 8a, iPad A16, MacBook Pro). This is a glance
+tool, not a place to do work.
+
+### Stack decisions (fill in as decided — leave TODOs, don't assume)
+- Backend language: TODO — Python for parity with G.A.B., or Go per the project ladder
+- Frontend: vanilla JS/HTML, matching `gab.html`'s style, unless Ryan asks for a framework
+- Deployment: Docker container on Proxmox, exposed via Tailscale (`tailscale serve`),
+  same pattern as Open WebUI
+- Data sources:
+  - G.A.B.: read `gab_data.json` directly if co-located, OR add a small read-only JSON
+    endpoint to `gab_server.py` — decide explicitly, don't duplicate reminder logic
+  - Proxmox: Proxmox API (token auth) for container/VM status
+  - GPU: `nvidia-smi --query-gpu=... --format=csv` on the workstation, exposed via a
+    small Tailscale-reachable agent — this dashboard itself should NOT run on the
+    workstation, it belongs on the NAS/router box or a Proxmox LXC
+  - Application pipeline: no external integration exists (Handshake has no public API);
+    a static JSON file or small SQLite table edited via the UI is enough — don't
+    over-engineer this piece
+
+### Non-goals
+- No auth system beyond Tailscale ACLs — don't build a login page
+- No duplicate notifications — G.A.B. already pushes to ntfy/Gotify; this dashboard reads
+  state, it doesn't re-notify
+- No editing of tasks/reminders here — that stays G.A.B.'s job via voice; this is read-only
+  plus the manual pipeline tracker
+
+### Conventions to match G.A.B.'s codebase
+- Atomic writes with `.bak` backup for any local JSON state (see `save_data()` in
+  `gab_server.py`)
+- Section-banner comments (`# ====...`) dividing major concerns
+- Config constants (HOST, PORT, paths) declared at the top of the file, not scattered
+- No hardcoded API keys — env vars or a gitignored local config file
+
+### Open questions to resolve before/while building
+- Direct file read of G.A.B.'s JSON vs. a dedicated `/api/status` endpoint on G.A.B.?
+- Refresh cadence — polling interval vs. push?
+- Which box does this actually run on — same LXC as G.A.B., or its own container?
+
 ## Layout
 ```
 dashboard/              ← this repo; the actual dashboard app (see its own build notes above)
