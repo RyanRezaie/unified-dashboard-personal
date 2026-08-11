@@ -22,8 +22,10 @@ tool, not a place to do work.
 - Deployment: Docker container on Proxmox, exposed via Tailscale (`tailscale serve`),
   same pattern as Open WebUI
 - Data sources:
-  - G.A.B.: read `gab_data.json` directly if co-located, OR add a small read-only JSON
-    endpoint to `gab_server.py` — decide explicitly, don't duplicate reminder logic
+  - G.A.B.: **DECIDED** — a new read-only `GET /api/assignments` endpoint on
+    `gab_server.py`, local-only, never a direct read of `gab_data.json`. It must never
+    write. Response shape is pinned in `docs/dashboard-ui.md`; how G.A.B. stores
+    assignments behind it is still open. Don't duplicate reminder logic.
   - Proxmox: Proxmox API (token auth) for container/VM status
   - GPU: `nvidia-smi --query-gpu=... --format=csv` on the workstation, exposed via a
     small Tailscale-reachable agent — this dashboard itself should NOT run on the
@@ -46,10 +48,27 @@ tool, not a place to do work.
 - Config constants (HOST, PORT, paths) declared at the top of the file, not scattered
 - No hardcoded API keys — env vars or a gitignored local config file
 
+### UI — decided, see `docs/dashboard-ui.md`
+The UI design is settled. `docs/dashboard-ui-mockup.html` is the visual reference
+(self-contained, open it in a browser); `docs/dashboard-ui.md` is the spec. Summary:
+- **Two surfaces, one HTML file**, split by a width breakpoint — same shape `gab.html`
+  uses for its TV case. An always-on monitor layout (1920×1080, never touched, no
+  navigation, everything visible at once) and a phone layout (390×844, 64px left rail,
+  four tabs). Nothing new visually — all tokens, type and idioms come from `gab.html`.
+- **Attention rule**: overdue reminders + homelab faults. Deliberately NOT approaching
+  deadlines — the countdown already shows those, and including them would leave the
+  panel amber most of a normal week.
+- **Refresh**: 20s data poll (matching `gab.html`'s `loadState`), 1s client-side tick
+  for the countdown. Cheap — `gab_server.py` is a `ThreadingHTTPServer` already serving
+  the HUD's 400ms status poll.
+- **Burn-in mitigation is in scope** — slow layout drift + scheduled dim, as top-of-file
+  constants. The panel shows this UI ~99% of the time.
+
 ### Open questions to resolve before/while building
-- Direct file read of G.A.B.'s JSON vs. a dedicated `/api/status` endpoint on G.A.B.?
-- Refresh cadence — polling interval vs. push?
+- How G.A.B. stores assignments behind `/api/assignments` — a new first-class type in
+  `gab_data.json`, or derived from existing dated reminders? The UI is indifferent.
 - Which box does this actually run on — same LXC as G.A.B., or its own container?
+- Real values for the attention thresholds and the watched-container list.
 
 ## Layout
 ```
