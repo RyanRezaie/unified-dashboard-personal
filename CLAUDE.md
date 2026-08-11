@@ -17,8 +17,12 @@ three screens (iPhone 15+/GrapheneOS Pixel 8a, iPad A16, MacBook Pro). This is a
 tool, not a place to do work.
 
 ### Stack decisions (fill in as decided — leave TODOs, don't assume)
-- Backend language: TODO — Python for parity with G.A.B., or Go per the project ladder
-- Frontend: vanilla JS/HTML, matching `gab.html`'s style, unless Ryan asks for a framework
+- Backend language: **DECIDED — Go.** The dashboard is mostly a fan-out aggregator over
+  Proxmox and the workstation GPU agent, and the GPU agent will most likely be Go too.
+  Parity with G.A.B. only ever mattered for data G.A.B. owns, which this reads over HTTP.
+  Standard library only — no third-party dependencies. See `README.md` to run it.
+- Frontend: vanilla JS/HTML, matching `gab.html`'s style, unless Ryan asks for a framework.
+  Lives in `web/static/`, embedded into the binary, so the binary is the whole deployment.
 - Deployment: Docker container on Proxmox, exposed via Tailscale (`tailscale serve`),
   same pattern as Open WebUI
 - Data sources:
@@ -68,7 +72,16 @@ The UI design is settled. `docs/dashboard-ui-mockup.html` is the visual referenc
 - How G.A.B. stores assignments behind `/api/assignments` — a new first-class type in
   `gab_data.json`, or derived from existing dated reminders? The UI is indifferent.
 - Which box does this actually run on — same LXC as G.A.B., or its own container?
-- Real values for the attention thresholds and the watched-container list.
+- Real values for the attention thresholds and the watched-container list. The server
+  logs a warning at startup while these are still the placeholders in
+  `internal/config/config.go`, and attention rule 2 cannot fire until the watched-container
+  list is set.
+- **What else G.A.B. exposes besides assignments.** Only `/api/assignments` was ever
+  pinned, but the monitor shows DAILY / WEEKLY OBJECTIVES / REMINDERS blocks and attention
+  rule 1 is defined in terms of overdue *reminders*. `internal/gab` asks for
+  `/api/reminders`, `/api/tasks` and `/api/objectives` as **proposed** shapes and treats a
+  404 as "not implemented yet" — the block hides instead of failing. Shapes are in
+  `internal/model`, marked `UNPINNED`. Rule 1 can't fire until reminders exist.
 
 ## Layout
 ```
