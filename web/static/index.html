@@ -553,6 +553,11 @@ let THRESH = {gpu_temp_c: Infinity, disk_pct: Infinity};
 let state = null;             // last good /api/state
 let stale = false;            // last poll failed
 let tab = "home";
+// Whether the phone's "+ TRACK AN APPLICATION" form is open, which is the one
+// piece of UI state the 1s tick must not paint over. renderPhone() rebuilds
+// #p-content wholesale from state on every tick, so without this the form —
+// and anything typed into it — is destroyed within a second of opening.
+let addOpen = false;
 const WD  = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
 const MON = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
 
@@ -904,7 +909,16 @@ function renderPhone(now){
   } else {
     nameEl.textContent = "PIPELINE";
     $("p-tabmeta").textContent = "TAP TO ADVANCE";  // the one tab with a verb
-    $("p-content").innerHTML = phoneJobs(now);
+    // NOT rebuilt while the add form is open. This branch replaces
+    // #p-content wholesale, and it runs on the 1s display tick, so the
+    // rebuild used to swallow the form (and any half-typed company name)
+    // about a second after it was tapped open.
+    //
+    // Freezing the list for as long as someone is typing into it is the
+    // right trade and not merely the cheap one: the only time-dependent
+    // thing rendered here is an age in whole days, and repainting rows
+    // under a finger that is aiming at them is worse than a stale "3d".
+    if (!addOpen) $("p-content").innerHTML = phoneJobs(now);
   }
 
   $("p-strip").innerHTML = tab === "jobs"
@@ -1060,6 +1074,10 @@ document.getElementById("p-content").addEventListener("click", (ev) => {
   const kill = ev.target.closest("[data-kill]");
   if (kill) {
     ev.stopPropagation();
+    // Touching the list dismisses the add form. Not cosmetic: while it is
+    // open the rebuild above is skipped, so a card retired or advanced
+    // underneath it would not visibly move until the form closed.
+    addOpen = false;
     const card = kill.closest(".jcard");
     // ✕ retires an item to DEAD; a second ✕ on a dead item removes it for good.
     if (card.dataset.stage === "dead") {
@@ -1074,13 +1092,17 @@ document.getElementById("p-content").addEventListener("click", (ev) => {
 
   const card = ev.target.closest(".jcard");
   if (card) {
+    addOpen = false;   // same reason as the ✕ branch above
     const next = ADVANCE[card.dataset.stage];
     if (next !== card.dataset.stage) pipelineWrite("PATCH", "/" + card.dataset.id, {stage: next});
     return;
   }
 
   if (ev.target.id === "p-add-toggle") {
-    document.getElementById("p-add-form").classList.toggle("open");
+    // The class is what shows the form; addOpen is what stops the display
+    // tick from rebuilding #p-content out from under it. Read the class
+    // back rather than tracking a second copy of the same truth.
+    addOpen = document.getElementById("p-add-form").classList.toggle("open");
     return;
   }
   if (ev.target.id === "p-add-go") {
@@ -1091,12 +1113,22 @@ document.getElementById("p-content").addEventListener("click", (ev) => {
       role:  document.getElementById("p-add-role").value.trim(),
       stage: document.getElementById("p-add-stage").value,
       note:  "",
+    }).then((ok) => {
+      // Closed only once the server has it. On a failed write the form
+      // stays open with everything still typed into it — the rebuild is
+      // still suppressed — so the fix is a second tap on ADD rather than
+      // filling the whole thing in again.
+      if (ok) { addOpen = false; render(); }
     });
   }
 });
 
 document.querySelectorAll("#phone .ri").forEach((el) => {
-  el.addEventListener("click", () => { tab = el.dataset.tab; render(); });
+  // Leaving the tab closes the add form, and that is load-bearing rather
+  // than tidy: the suppressed rebuild is what keeps the form alive, so an
+  // addOpen left set on the way out would freeze #p-content permanently —
+  // it would still be holding another tab's markup on the way back.
+  el.addEventListener("click", () => { tab = el.dataset.tab; addOpen = false; render(); });
 });
 
 /* ============================================================
