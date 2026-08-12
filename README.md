@@ -86,6 +86,24 @@ Four things about that stack are worth knowing before they surprise you:
   volume would have meant an assistant that answers everything badly until it
   was rebuilt by hand. **Stop the host's Ollama first**: both want port 11434,
   and two of them writing one model directory is how it gets corrupted.
+- **Ollama gets no GPU by default — add `docker-compose.gpu.yml` on the main
+  PC.** A `deploy.resources` block naming an absent card stops the container
+  from starting rather than degrading, and the always-on server has no card,
+  so the base file leaves it off. Without the override Ollama runs the 7B
+  entirely on the CPU: gigabytes of system RAM, no VRAM, and an assistant slow
+  enough to feel broken. `docker exec ollama ollama ps` is the check — the
+  PROCESSOR column reads `100% CPU` before and `100% GPU` after. Needs the
+  NVIDIA container toolkit on the host; the override's header has the commands
+  and the Blackwell caveat.
+
+  ```sh
+  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+
+  # the full main-PC setup — the two overrides touch different services
+  docker compose -f docker-compose.yml \
+                 -f docker-compose.voice.yml \
+                 -f docker-compose.gpu.yml up -d
+  ```
 - **You may already run Ollama, SearXNG, Open-WebUI and ntfy.** Two copies
   fight over a published port, so stop the old container as you move each one
   in here. `docker compose up -d dashboard gab` starts only what is new
