@@ -227,6 +227,88 @@ capture and playback on the Pi and POST to `/api/ai/stt`, `/api/ai/ask` and
 and already speak exactly that protocol — the brain is network-shaped
 already, only capture and playback are physically pinned.
 
+### Music control in the container — playerctl
+
+`playerctl` is installed in the voice image, and the D-Bus **session** bus is
+mounted alongside the audio socket (`$XDG_RUNTIME_DIR/bus`). Installing the
+binary alone would have been a no-op: MPRIS players advertise themselves on
+that bus, and `MUSIC.available()` caches its answer for the life of the
+process, so a missing bus is a permanent "music control is disabled" rather
+than something that recovers.
+
+What this means in practice: `gab, pause the music` reaches whatever is
+playing **on the host**, because that is where the players are. Music control
+therefore follows the desk, not the service — on a headless always-on server
+there is no session bus and nothing playing, `MUSIC.available()` caches
+False, and every other feature is unaffected. That is the correct outcome,
+but it is worth knowing before wondering why it worked on the PC and not on
+the server.
+
+## GPU agent — BUILT, unverified against a real card
+
+`cmd/gpu-agent` exists now, so `GPU_AGENT_URL` finally points at something.
+It serves `GET /gpu` on **8883** in exactly the shape
+`internal/homelab/gpu.go` had already pinned — that contract was written from
+the dashboard side first, and the agent was built to it rather than the
+reverse.
+
+- **Deliberately not in the compose stack, and deliberately not a container.**
+  It has to run where the card is (the main PC), which is the machine this
+  dashboard is not allowed to run on. Reaching a GPU from a container needs
+  the NVIDIA container toolkit and a device reservation that fails closed
+  when the card is absent — real cost for a static binary that runs one
+  command. `deploy/gpu-agent.service.example` is a systemd **user** unit;
+  nvidia-smi needs no privilege.
+- **One exec per request, no cache, no state.** The only client polls every
+  20s. Caching, degradation and thresholds are all solved on the dashboard
+  side already, and a second implementation would be a second place to fix.
+- **It starts without a driver** and returns 503 until there is one. The main
+  PC being asleep is the expected case, and the GPU lane degrading alone is
+  the behaviour the panel was designed around.
+- **`[N/A]` columns parse as 0, not as an error** — plenty of cards never
+  report fan speed. The CSV is split from the *right* so a card name
+  containing a comma cannot shift every column and report a fan speed as a
+  temperature.
+
+Verified against a fake `nvidia-smi` (correct JSON, both failure paths, the
+503) and `go vet` / `go test ./...` / `gofmt` are clean. **Not yet run
+against a real RTX 5070 Ti** — that needs the PC.
+
+## NEXT SESSION — the pipeline tab has no controls on the monitor
+
+Ryan reported there is no way to add or remove pipeline items. Investigated:
+the controls are **not missing, they are surface-split**, and nothing is
+broken. Full CRUD exists on the **phone** surface only:
+
+- `web/static/index.html:1024` — the `+ TRACK AN APPLICATION` button and the
+  add form, rendered by `phoneJobs()`.
+- `web/static/index.html:1057` — the click handler on `#p-content`: tapping a
+  card advances its stage, `✕` retires it to DEAD, and `✕` again on a dead
+  card deletes it after a confirm.
+- The **monitor** surface renders `#m-pipeline` (`index.html:810`) as pure
+  read-out — no add button, no `✕`, no handler bound to it at all.
+
+So on a MacBook at >1100px, which is the monitor layout, there is nothing to
+click. That is consistent with the design ("an always-on monitor, never
+touched, no navigation") but it is clearly not what Ryan expected while
+sitting at a laptop.
+
+**Decide before building** — this is a design question, not a bug:
+
+1. Leave the monitor read-only and improve discoverability instead (the
+   phone layout is the editor; say so on the panel).
+2. Give the monitor the same controls. Cheapest in code — the handler is
+   already delegated and `pipelineWrite()` is surface-agnostic — but it puts
+   click targets on a panel whose whole premise is that nobody touches it,
+   and an accidental `✕` on an always-on display is a silent data loss.
+3. Split by *input* rather than by width: enable the controls on the monitor
+   layout only when the pointer is fine (`@media (pointer: fine)`), so a
+   laptop gets them and the wall panel does not.
+
+Option 3 is probably what Ryan actually wants, but it is his call. The
+backend needs no work either way — `POST`/`PATCH`/`DELETE /api/pipeline` all
+exist and are the only writes in the dashboard.
+
 ### Merge order
 
 The submodule pointer recorded here points at the branch commit in

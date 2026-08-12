@@ -113,6 +113,12 @@ services:
       # change.
       GAB_STT_MODEL_SIZE: "${GAB_STT_MODEL_SIZE:-base.en}"
 
+      # playerctl talks to media players over the D-Bus SESSION bus, and this
+      # is where it looks for it. The players themselves are on the host —
+      # Firefox, Spotify, whatever is actually making noise — so without the
+      # mount below this points at nothing and music control stays dead.
+      DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/dbus/session"
+
       # The wake loop asks this model, and it is the one upstream here that
       # actually wants the GPU. Already correct via the base file's `ollama`
       # service; repointed only if the LLM lives on another box.
@@ -129,6 +135,19 @@ services:
       # permission on it, so a :ro mount here fails in a way that reads like
       # a missing device.
       - "${XDG_RUNTIME_DIR:-/run/user/1000}/pulse/native:/run/pulse/native"
+
+      # THE MUSIC. playerctl is installed in the voice image, but a binary
+      # with no bus controls nothing: MPRIS players advertise themselves on
+      # the host's D-Bus session bus, and this is that bus.
+      #
+      # Note what this does NOT do — it does not put a player in the
+      # container. `gab, pause the music` reaches whatever is playing on the
+      # HOST, which is the desired behaviour and worth being explicit about,
+      # because it also means music control follows the desk rather than the
+      # service. On a headless always-on server there is no session bus and
+      # nothing playing; the mount fails or finds nothing, MUSIC.available()
+      # caches False, and everything else carries on.
+      - "${XDG_RUNTIME_DIR:-/run/user/1000}/bus:/run/dbus/session"
 
       # Piper's voice, and Whisper's download cache. A volume rather than a
       # layer: gigabytes for one, hand-installed and not script-reproducible

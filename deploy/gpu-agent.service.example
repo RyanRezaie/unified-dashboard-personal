@@ -1,0 +1,69 @@
+# The GPU agent, as a systemd USER service on the main PC.
+#
+# This is the one piece of this project that does NOT run on the always-on
+# server and does NOT run in a container. It has to be where the card is, and
+# the dashboard deliberately is not (CLAUDE.md).
+#
+#   go build -o ~/.local/bin/gpu-agent ./cmd/gpu-agent
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/gpu-agent.service.example ~/.config/systemd/user/gpu-agent.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now gpu-agent
+#   systemctl --user status gpu-agent
+#
+# A USER service rather than a system one because it needs no privilege:
+# nvidia-smi is world-executable and reading sensors needs no root. Nothing
+# here writes anything, anywhere.
+#
+# ONE THING TO CHECK. A user service stops when you log out, unless lingering
+# is on — and this box is meant to answer the dashboard whenever it is awake,
+# not only while someone is signed in:
+#
+#   sudo loginctl enable-linger $USER
+#
+# If you would rather it be a system service, move it to
+# /etc/systemd/system/gpu-agent.service and add User=<you>. Both work; the
+# user unit is just less to explain.
+
+[Unit]
+Description=GPU agent — serves nvidia-smi over HTTP for the dashboard
+Documentation=https://github.com/RyanRezaie/unified-dashboard-personal
+# Not a hard dependency: the agent starts fine without the network and
+# answers 503 until the driver is there, which is exactly how the dashboard
+# expects a dead lane to behave.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/gpu-agent
+
+# Defaults are already right (0.0.0.0:8883, nvidia-smi from PATH). Uncomment
+# only if something is unusual — e.g. a driver install that is not on the
+# service manager's PATH, which is a different PATH than your shell's.
+#Environment=GPU_AGENT_HOST=0.0.0.0
+#Environment=GPU_AGENT_PORT=8883
+#Environment=NVIDIA_SMI_BIN=/usr/bin/nvidia-smi
+
+# The main PC sleeps, wakes and reboots on its own schedule — this is the
+# machine the dashboard already expects to be offline half the time. Restart
+# always, and do not let a persistent failure (no driver, port taken) turn
+# into a restart loop that fills the journal.
+Restart=always
+RestartSec=5
+
+# No unbuffering setting here, unlike G.A.B.'s unit: Go's log package writes
+# straight to stderr with no buffering to defeat, so journalctl sees every
+# line as it happens.
+
+# It reads sensors and serves HTTP. Nothing else, so take everything else away.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=default.target
