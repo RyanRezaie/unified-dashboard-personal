@@ -96,6 +96,51 @@ Four things about that stack are worth knowing before they surprise you:
   it is in the old volume — but keeping it means naming that volume in the
   service instead; there is a comment on the service showing how.
 
+### The GPU agent
+
+`cmd/gpu-agent` is the small service that puts `nvidia-smi` on the network.
+It is the one piece here that runs on the **main PC** rather than the
+always-on server, because the dashboard deliberately does not run where the
+card is, and it is not in the compose stack for the same reason.
+
+```sh
+go build -o ~/.local/bin/gpu-agent ./cmd/gpu-agent
+gpu-agent                                    # 0.0.0.0:8883
+curl -s localhost:8883/gpu | python3 -m json.tool
+```
+
+Then point the dashboard at it — `GPU_AGENT_URL: "http://workstation:8883"`
+in `docker-compose.yml`, where `workstation` is the main PC's name **on your
+tailnet**. That hostname is a placeholder in the compose file, not a
+discovery mechanism; if `tailscale status` calls the box something else, this
+is the line to change.
+
+| Env | Default | What |
+|---|---|---|
+| `GPU_AGENT_HOST` / `GPU_AGENT_PORT` | `0.0.0.0:8883` | Bind address |
+| `NVIDIA_SMI_BIN` | `nvidia-smi` | Only if it isn't on the service's PATH |
+
+To leave it running, `deploy/gpu-agent.service.example` is a systemd **user**
+unit — no privilege needed, nothing is written anywhere. It needs
+`loginctl enable-linger`, or it stops when you log out, which is not what a
+box the dashboard polls all day should do.
+
+Two behaviours worth knowing, both deliberate:
+
+- **It starts without a driver** and logs a warning, rather than refusing to
+  boot. `/gpu` answers 503 until the card is there, and the dashboard reads
+  any non-200 as a failed GPU lane and keeps the panel up. The main PC being
+  off is the normal case, not an error.
+- **`/healthz` never touches `nvidia-smi`.** Liveness is "this process is
+  running"; tying it to the driver would have systemd restarting a healthy
+  agent every time the card hiccuped.
+
+If the panel shows the GPU lane failed while `curl` on the PC works, it is
+almost always one of three things: `GPU_AGENT_URL` naming a host the
+dashboard's container cannot resolve, the agent bound to `127.0.0.1` instead
+of the default wildcard, or the PC's firewall dropping 8883 on the Tailscale
+interface.
+
 If the assignments block reads **G.A.B. UNREACHABLE**, check that lane before
 blaming the panel:
 
