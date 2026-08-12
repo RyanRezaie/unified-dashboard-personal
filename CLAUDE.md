@@ -274,6 +274,54 @@ Verified against a fake `nvidia-smi` (correct JSON, both failure paths, the
 503) and `go vet` / `go test ./...` / `gofmt` are clean. **Not yet run
 against a real RTX 5070 Ti** — that needs the PC.
 
+## G.A.B. cold start — FIXED, in the submodule
+
+The first wake of the day was slow and silently so. Everything —
+Whisper, Piper, the Ollama model — was lazy-loaded on first use, and
+`on_wake_detected()` preloads Ollama *before* speaking the ack, so there
+was no sign of life between the wake word and the answer. Every wake
+after the first is fast, which is why it survived testing: it lands only
+on the interaction that forms the impression.
+
+`ModelWarmer` in `gab_server.py` now does that work at boot on its own
+thread, so the API, the HUD and this dashboard's four endpoints come up
+immediately instead of after the loads. Four new constants
+(`WARM_ON_STARTUP`, `WARM_OLLAMA_ON_STARTUP`, `WARM_RETRY_SECONDS`,
+`WARM_MAX_ATTEMPTS`); no existing constant value touched. Ollama alone
+retries, because under compose it is ordered after G.A.B. but
+deliberately not health-gated, so a refused connection at t=0 is the
+normal cold boot rather than a fault. `QUESTION_STT_MODEL_SIZE` is
+deliberately not warmed — `_ensure_stt` evicts on a size change, so it
+would be discarded by the wake loop's first `base.en` scan.
+
+Lives on the `gab-assistant` branch `claude/gab-startup-warmup`, which
+branches from the voice commit this repo already pinned; the pointer is
+bumped here. Verified against a fake Ollama across nine cases. **Flagged
+and not changed:** `ModelReaper`, `WakeWordListener` and one other thread
+subclass there all assign `self._stop = threading.Event()`, shadowing
+`threading.Thread`'s own `_stop()` — harmless today because nothing joins
+those daemon threads, but `join()` on any of them raises. `ModelWarmer`
+uses `_stopping` and says why.
+
+## Voice control of the dashboard — BLUEPRINT ONLY
+
+`docs/gab-dashboard-writes.md` sizes what it would take for G.A.B. to
+drive this UI. Not built, nothing committed to. Summary: the only state
+this dashboard owns is the pipeline, so the valuable phase is voice
+writes to `POST/PATCH/DELETE /api/pipeline` — **zero dashboard code**,
+about 90 lines in `gab_server.py`, half a day. Phase 2 (spoken homelab
+status) is another half day. Phase 3 (live panel control) needs SSE and
+argues with "never touched, no navigation" — deferred.
+
+The real cost is directional: every phase adds an arrow from G.A.B. back
+to this dashboard, where today nothing points this way. Acceptable as a
+best-effort call at command time, but it is a deliberate choice.
+
+**Phase 1 is also a fourth answer to the open question below** — voice
+adds a pipeline item without putting any click target on an always-on
+panel, which was the whole objection to option 2. Decide the two
+together.
+
 ## NEXT SESSION — the pipeline tab has no controls on the monitor
 
 Ryan reported there is no way to add or remove pipeline items. That turned
