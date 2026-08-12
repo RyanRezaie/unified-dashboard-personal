@@ -276,9 +276,20 @@ against a real RTX 5070 Ti** — that needs the PC.
 
 ## NEXT SESSION — the pipeline tab has no controls on the monitor
 
-Ryan reported there is no way to add or remove pipeline items. Investigated:
-the controls are **not missing, they are surface-split**, and nothing is
-broken. Full CRUD exists on the **phone** surface only:
+Ryan reported there is no way to add or remove pipeline items. That turned
+out to be **two separate things**, one of which is fixed:
+
+- **The add form was unusable on the phone — FIXED.** It opened and vanished
+  within a second, because the 1s display tick rebuilds `#p-content` and
+  `phoneJobs()` re-emitted the form closed. The jobs branch now skips that
+  rebuild while the form is open. Verified in a real browser against both
+  builds. Nothing below depends on this; it was a genuine bug and it is out
+  of the way now.
+- **The monitor surface still has no controls at all** — the design question
+  below, still open.
+
+The controls there are **not missing, they are surface-split**. Full CRUD
+exists on the **phone** surface only:
 
 - `web/static/index.html:1024` — the `+ TRACK AN APPLICATION` button and the
   add form, rendered by `phoneJobs()`.
