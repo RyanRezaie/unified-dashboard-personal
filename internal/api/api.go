@@ -8,11 +8,14 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/RyanRezaie/unified-dashboard-personal/internal/config"
@@ -40,7 +43,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	// --- UI ---
-	mux.Handle("GET /", http.FileServerFS(s.web))
+	mux.Handle("GET /", staticHandler(s.web))
 
 	// --- read ---
 	mux.HandleFunc("GET /api/state", s.handleState)
@@ -56,6 +59,68 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/pipeline/{id}", s.handlePipelineDelete)
 
 	return logging(mux)
+}
+
+// ============================================================
+// STATIC ASSETS
+// ============================================================
+
+// staticHandler serves the embedded frontend with a content-hash ETag and
+// Cache-Control: no-cache.
+//
+// Without it there is no validator on index.html at all. embed.FS reports a
+// ZERO modtime, so http.FileServerFS sends neither Last-Modified nor ETag,
+// and a browser already holding the file has no way to ask whether it
+// changed. That turns a shipped frontend fix into one that appears not to
+// work — the phone keeps running the old JS after a correct rebuild and
+// redeploy, which is indistinguishable from the bug never having been fixed.
+//
+// Hashing once at startup is exact rather than approximate: the assets are
+// compiled into the binary, so they cannot change while the process runs,
+// and the tag changes if and only if a rebuild changed the bytes.
+//
+// "no-cache" means "keep it, but revalidate before every use" — not "do not
+// store". Paired with the ETag, an unchanged panel costs one 304 and no body.
+func staticHandler(files fs.FS) http.Handler {
+	etags := map[string]string{}
+	err := fs.WalkDir(files, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(files, p)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(b)
+		// Quoted because an ETag is a quoted-string on the wire; net/http
+		// compares it verbatim against If-None-Match. Half the digest is
+		// plenty to tell two builds apart.
+		etags["/"+p] = `"` + hex.EncodeToString(sum[:8]) + `"`
+		return nil
+	})
+	if err != nil {
+		// Only reachable if the embedded FS itself is unreadable, which is a
+		// build-time mistake rather than a runtime condition.
+		panic(err)
+	}
+
+	fileServer := http.FileServerFS(files)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// FileServerFS resolves a directory to its index.html; the hash map
+		// is keyed by real file, so resolve the same way before looking up.
+		p := r.URL.Path
+		if strings.HasSuffix(p, "/") {
+			p += "index.html"
+		}
+		if tag, ok := etags[p]; ok {
+			// Set BEFORE delegating: net/http's conditional-request check
+			// reads the ETag back off the response header, so this is what
+			// turns a matching If-None-Match into a 304.
+			w.Header().Set("Etag", tag)
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 // ============================================================

@@ -1,0 +1,67 @@
+# GPU MODE — Ollama gets the card.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# An override rather than an edit to docker-compose.yml, for the same reason
+# the base file leaves this commented out: a `deploy.resources` block naming a
+# GPU that is not there does not degrade, it stops the container from
+# STARTING. The always-on server has no card, so putting this in the base file
+# would trade a working stack there for a faster one here.
+#
+# Which is the whole topology in one line — CLAUDE.md's two machines:
+#
+#   Main PC (RTX 5070 Ti)   the LLM lives here. This override belongs here.
+#   Always-on server        everything else. Base file only, no card, no GPU.
+#
+# WHAT IT FIXES. Without it Ollama runs qwen2.5:7b entirely on the CPU: many
+# gigabytes of system RAM, no VRAM, and an answer slow enough that the voice
+# assistant feels broken rather than slow. `docker exec ollama ollama ps` is
+# the check — the PROCESSOR column reads "100% CPU" before and "100% GPU"
+# after. A 7B at Q4 is roughly 5GB, so it fits a 16GB card with plenty of room
+# for context.
+#
+# ---------------------------------------------------------------------------
+# HOST PREREQUISITE, and it is not optional. The container needs the NVIDIA
+# container toolkit on the host or it will fail to start with a runtime error
+# rather than falling back:
+#
+#   sudo dnf install -y nvidia-container-toolkit
+#   sudo nvidia-ctk runtime configure --runtime=docker
+#   sudo systemctl restart docker
+#
+# (Fedora shown, matching the box this was written for; the toolkit is
+# packaged for the other distributions too.)
+#
+# BLACKWELL. The 5070 Ti is sm_120 and needs a recent CUDA build. The base
+# file pins `image: docker.io/ollama/ollama` with no tag, and Docker does not
+# re-pull `latest` on its own — a long-cached image can predate Blackwell
+# support and fall back to the CPU even with the toolkit installed, which
+# looks exactly like this override not working. If `ollama ps` still says CPU:
+#
+#   docker compose pull ollama && docker compose up -d ollama
+#   docker logs ollama 2>&1 | grep -i "cuda\|compute capability\|no compatible GPUs"
+#
+# COMPOSES WITH THE VOICE OVERRIDE. They touch different services, so the full
+# desk setup is one command:
+#
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.voice.yml \
+#                  -f docker-compose.gpu.yml up -d
+# ---------------------------------------------------------------------------
+#
+# NOT THE GPU AGENT. cmd/gpu-agent also runs on the main PC and also concerns
+# the card, but it is deliberately not a container and deliberately not in
+# this stack — see CLAUDE.md and deploy/gpu-agent.service.example. It shells
+# out to nvidia-smi, which needs no device reservation at all.
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            # `count: all` rather than a device id: there is one card, and an
+            # index would be one more machine-specific value to keep correct.
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
