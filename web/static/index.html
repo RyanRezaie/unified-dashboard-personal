@@ -368,6 +368,15 @@ body{
   background:rgba(255,157,61,0.07);}
 .ph .sc2.pur{border-color:var(--l-faint);border-left-color:var(--l);
   background:rgba(180,140,255,0.05);}
+/* The GPU card spans both columns: it is the fifth card in a two-up grid, so
+   without this it sits half-width with a hole beside it. Full width also buys
+   room for the VRAM figure on the same line as the temperature. */
+.ph .sc2.wide{grid-column:1 / -1;}
+/* Dimmed, not amber. The main PC being asleep is the expected daily case (see
+   CLAUDE.md's topology), so an offline GPU lane is information, not a fault —
+   .warn is reserved for the temperature actually crossing the threshold. */
+.ph .sc2.off{border-left-color:var(--c-faint);background:none;}
+.ph .sc2.off .v{color:var(--td);}
 .ph .sc2 .k{font-family:'Orbitron',sans-serif;font-size:7.5px;font-weight:600;
   letter-spacing:2px;color:var(--td);margin-bottom:5px;}
 .ph .sc2.warn .k{color:var(--a);}
@@ -750,6 +759,33 @@ function gpuMeters(lab){
   }).join("");
 }
 
+// The GPU reduced to one summary card for the phone's HOME tab. The LAB tab
+// keeps the full meters (gpuMeters above); this is the glance version, and the
+// two read the same THRESH the server's attention rule uses so they cannot
+// disagree about what counts as hot.
+//
+// Never returns "": the main PC is off most of the day, and a card that
+// vanishes when the agent is unreachable reads as "nothing to report" when the
+// truth is "not known". Offline is a state worth showing, just not an alarming
+// one — hence .off rather than .warn.
+function phoneGpuCard(lab){
+  const card = (cls, value, unit) =>
+    `<div class="sc2 wide${cls}"><div class="k">GPU</div>
+      <div class="v">${esc(value)}</div><div class="u">${esc(unit)}</div></div>`;
+
+  if (!lab.gpu_status.ok) return card(" off", "—", "AGENT OFFLINE");
+  if (!lab.gpus || !lab.gpus.length) return card(" off", "—", "NO GPU REPORTED");
+
+  // Hottest card, not the first. One card today, but picking the max means a
+  // second one cannot hide a thermal problem behind a cool neighbour.
+  const g = lab.gpus.reduce((a, b) => (b.temp_c > a.temp_c ? b : a));
+  const hot = g.temp_c >= THRESH.gpu_temp_c;
+  const vram = g.vram_total_mb
+    ? (g.vram_used_mb / 1024).toFixed(1) + " / " + (g.vram_total_mb / 1024).toFixed(0) + " GB"
+    : "VRAM UNKNOWN";
+  return card(hot ? " warn" : "", g.temp_c.toFixed(0) + " °C", vram);
+}
+
 function diskMeters(lab){
   if (!lab.proxmox_status.ok) return "";
   return (lab.disks || []).map((d) =>
@@ -974,6 +1010,7 @@ function phoneHome(now, attn){
       <div class="u">${tasks.filter((t) => t.done).length} DONE</div></div>
     <div class="sc2 pur"><div class="k">INTERVIEWS</div><div class="v">${interviews.length}</div>
       <div class="u">${esc(interviews.slice(0, 2).map((i) => i.company).join(" · ")) || "—"}</div></div>
+    ${phoneGpuCard(lab)}
   </div>`;
 }
 
