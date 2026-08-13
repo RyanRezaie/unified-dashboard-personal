@@ -402,9 +402,15 @@ The short version, since the detail belongs in `notes-rag/README.md`:
   (tesseract vs docTR needs Ryan's real handwriting, which no code can settle).
   Worth knowing: if GoodNotes has already recognized the handwriting, its own
   text layer is read directly and the OCR question is moot.
-- Verified as far as this environment allows: 79 tests, including the UI in a real
-  browser and the GoodNotes PDF path against fake poppler/tesseract binaries — the
-  same technique `cmd/gpu-agent` uses for `nvidia-smi`. **Not** verified against a
+- **Notes are added from inside the app** (`POST /api/upload`), because Ryan uses
+  it from the iPad and iPhone, where nothing can put a file into the notes folder
+  by hand. It also answers with **`Gab:v2`** rather than a second 7B tag — one
+  Ollama, and two different 7B models evict each other from VRAM on every
+  alternating request. Neither change touches G.A.B. or this dashboard.
+- Verified as far as this environment allows: 112 tests, including the UI in a real
+  browser, the upload path, and the GoodNotes PDF path against fake
+  poppler/tesseract binaries — the same technique `cmd/gpu-agent` uses for
+  `nvidia-smi`. **Not** verified against a
   real Ollama, a real Qdrant, or the real poppler/tesseract binaries; none exist here.
 
 ### Merge order
