@@ -413,11 +413,51 @@ The short version, since the detail belongs in `notes-rag/README.md`:
   `nvidia-smi`. **Not** verified against a
   real Ollama, a real Qdrant, or the real poppler/tesseract binaries; none exist here.
 
+### "It OCR'd 1 of 46 pages" — reported from a real import, now answerable
+
+Ryan imported a GoodNotes PDF and the report said it OCR'd 1 of 46 pages.
+That single line is produced by two opposite situations and **no code can
+tell them apart**: GoodNotes recognized the handwriting on the other 45
+pages (the best case there is), or they are printed slides whose
+handwritten annotations were dropped — the exact failure the per-page
+decision exists to prevent. Both are "this page has text on it".
+
+So the fix is not a smarter heuristic. On the `claude/goodnotes-pdf-ocr-pgj9va`
+branch in the submodule (pushed; this parent branch carries the pointer bump
+and this note — **nothing on the dashboard side changed**):
+
+- A **mixed** document now reports that the pages it left alone may be
+  hiding ink. Mixed ones only — every typed PDF has a full text layer, and
+  warning there puts the paragraph on every syllabus until nobody reads it.
+- **`python3 -m notesrag.inspect FILE.pdf`** prints per-page character
+  counts and the first line of the text already in the PDF, which is what
+  actually settles it in one glance. `--ocr N` prints what tesseract makes
+  of one real page — that also turns the long-open tesseract-vs-docTR
+  comparison into a one-liner per page, which was the friction stopping it.
+- **OCR-every-page became per file**, not just a global env var: a button
+  under the file's line in the report, a tick in `+ ADD NOTES`,
+  `--ocr-all` on the CLI, and `only`/`ocr_all` on `POST /api/ingest`. The
+  global flag alone meant an hour of tesseract over a corpus that mostly
+  doesn't need it, and from an iPad the only alternative was re-uploading,
+  which lands beside the original and indexes the same slides twice.
+
+One bug found by its own test: `/api/ingest` validated the request *after*
+taking the ingest lock, so a 400 leaked it and every later ingest answered
+409 "an ingest is already running" with none running. 147 tests, the new UI
+paths included, driven in Chromium.
+
+Still unverified for the same reason as everything else here: no real
+poppler, tesseract, Ollama or Qdrant in this environment — and whether
+tesseract can read Ryan's handwriting remains the open question `--ocr`
+now makes cheap to answer.
+
 ### Merge order
 
 Same shape as the G.A.B. work above: the pointer recorded here names the branch
 commit in `notes-rag`. If that PR is squashed or rebased on merge the SHA changes,
 and the pointer needs re-bumping to the merged commit before this branch goes in.
+The pointer also skips ahead of the previously recorded one — this branch is cut
+from `notes-rag` main *after* the upload work merged, so the bump carries both.
 
 ## Layout
 ```
