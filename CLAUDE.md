@@ -374,6 +374,45 @@ The submodule pointer recorded here points at the branch commit in
 `gab-assistant`. If that PR is squashed or rebased on merge, the SHA changes and
 the pointer needs re-bumping to the merged commit before this branch goes in.
 
+## notes-rag — STARTED, first build in the submodule
+
+`notes-rag/` was an empty repo with only a `CLAUDE.md` until now. The first build
+lives on its `claude/notes-rag-submodule-1rxs9r` branch (pushed); this parent
+branch carries the pointer bump and this note. **Nothing on the dashboard side
+changed** — see the integration point below, which is still accurate.
+
+The short version, since the detail belongs in `notes-rag/README.md`:
+
+- **Stdlib-only Python, zero pip dependencies**, like G.A.B.'s core server and for
+  the same reasons. Qdrant and Ollama are JSON over HTTP so `urllib` reaches both;
+  extraction is `pdftotext` and `tesseract` as subprocesses.
+- **It claims 8884**, continuing this file's port plan (8881 dashboard, 8882
+  G.A.B., 8883 GPU agent). Its Qdrant is deliberately not published to the host.
+- **It reaches the workstation's Ollama over Tailscale** and runs on the always-on
+  server, which is the same split this dashboard's GPU lane already assumes — so
+  notes-rag degrades exactly when the main PC is asleep, and says so rather than
+  hanging.
+- **GoodNotes exports are the main import path**, confirmed by Ryan, and that
+  shaped the PDF extractor: a handwritten GoodNotes page is vector ink with no
+  text layer, so pages without text of their own are rasterized and OCR'd. The
+  decision is per page, because an annotated lecture PDF has a text layer for the
+  printed slides and none for the handwriting on top — judged per document it
+  looks healthy while every annotation is dropped.
+- Three of its four open questions are answered; **OCR stays open on purpose**
+  (tesseract vs docTR needs Ryan's real handwriting, which no code can settle).
+  Worth knowing: if GoodNotes has already recognized the handwriting, its own
+  text layer is read directly and the OCR question is moot.
+- Verified as far as this environment allows: 79 tests, including the UI in a real
+  browser and the GoodNotes PDF path against fake poppler/tesseract binaries — the
+  same technique `cmd/gpu-agent` uses for `nvidia-smi`. **Not** verified against a
+  real Ollama, a real Qdrant, or the real poppler/tesseract binaries; none exist here.
+
+### Merge order
+
+Same shape as the G.A.B. work above: the pointer recorded here names the branch
+commit in `notes-rag`. If that PR is squashed or rebased on merge the SHA changes,
+and the pointer needs re-bumping to the merged commit before this branch goes in.
+
 ## Layout
 ```
 dashboard/              ← this repo; the actual dashboard app (see its own build notes above)
