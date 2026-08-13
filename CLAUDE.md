@@ -392,11 +392,20 @@ The short version, since the detail belongs in `notes-rag/README.md`:
   server, which is the same split this dashboard's GPU lane already assumes — so
   notes-rag degrades exactly when the main PC is asleep, and says so rather than
   hanging.
+- **GoodNotes exports are the main import path**, confirmed by Ryan, and that
+  shaped the PDF extractor: a handwritten GoodNotes page is vector ink with no
+  text layer, so pages without text of their own are rasterized and OCR'd. The
+  decision is per page, because an annotated lecture PDF has a text layer for the
+  printed slides and none for the handwriting on top — judged per document it
+  looks healthy while every annotation is dropped.
 - Three of its four open questions are answered; **OCR stays open on purpose**
   (tesseract vs docTR needs Ryan's real handwriting, which no code can settle).
-- Verified as far as this environment allows: 66 tests, including the UI in a real
-  browser. **Not** verified against a real Ollama, a real Qdrant, or a real PDF —
-  none of the three exist here.
+  Worth knowing: if GoodNotes has already recognized the handwriting, its own
+  text layer is read directly and the OCR question is moot.
+- Verified as far as this environment allows: 79 tests, including the UI in a real
+  browser and the GoodNotes PDF path against fake poppler/tesseract binaries — the
+  same technique `cmd/gpu-agent` uses for `nvidia-smi`. **Not** verified against a
+  real Ollama, a real Qdrant, or the real poppler/tesseract binaries; none exist here.
 
 ### Merge order
 
